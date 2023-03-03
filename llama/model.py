@@ -9,8 +9,6 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 
-import fairscale.nn.model_parallel.initialize as fs_init
-
 
 @dataclass
 class ModelArgs:
@@ -72,7 +70,7 @@ class Attention(nn.Module):
     def __init__(self, args: ModelArgs, use_cache=False):
         super().__init__()
 
-        self.n_local_heads = args.n_heads // fs_init.get_model_parallel_world_size()
+        self.n_local_heads = args.n_heads // 1
         self.head_dim = args.dim // args.n_heads
 
         self.wq = nn.Linear(
