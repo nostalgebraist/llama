@@ -99,6 +99,7 @@ class Attention(nn.Module):
         if self.use_xformers:
             import xformers.ops as xops
             self.xops = xops
+            self.mask = xformers.ops.LowerTriangularMask()
 
         if self.use_cache:
             self.cache_k = torch.zeros(
@@ -138,7 +139,7 @@ class Attention(nn.Module):
 
         if self.use_xformers:
             output = self.xops.memory_efficient_attention(
-                xq, keys, values, mask
+                xq, keys, values, mask=self.mask
             )
         else:
             scores = torch.matmul(xq, keys.transpose(2, 3)) / math.sqrt(self.head_dim)
@@ -180,12 +181,12 @@ class FeedForward(nn.Module):
 
 
 class TransformerBlock(nn.Module):
-    def __init__(self, layer_id: int, args: ModelArgs):
+    def __init__(self, layer_id: int, args: ModelArgs, use_xformers=True):
         super().__init__()
         self.n_heads = args.n_heads
         self.dim = args.dim
         self.head_dim = args.dim // args.n_heads
-        self.attention = Attention(args)
+        self.attention = Attention(args, use_xformers=use_xformers)
         self.feed_forward = FeedForward(
             dim=args.dim, hidden_dim=4 * args.dim, multiple_of=args.multiple_of
         )
@@ -200,7 +201,7 @@ class TransformerBlock(nn.Module):
 
 
 class Transformer(nn.Module):
-    def __init__(self, params: ModelArgs):
+    def __init__(self, params: ModelArgs, use_xformers: bool = True):
         super().__init__()
         self.params = params
         self.vocab_size = params.vocab_size
@@ -212,7 +213,10 @@ class Transformer(nn.Module):
 
         self.layers = torch.nn.ModuleList()
         for layer_id in range(params.n_layers):
-            self.layers.append(TransformerBlock(layer_id, params))
+            self.layers.append(TransformerBlock(
+                layer_id, params, 
+                use_xformers=use_xformers
+            ))
 
         self.norm = RMSNorm(params.dim, eps=params.norm_eps)
         self.output = nn.Linear(
@@ -222,6 +226,7 @@ class Transformer(nn.Module):
         self.freqs_cis = precompute_freqs_cis(
             self.params.dim // self.params.n_heads, self.params.max_seq_len * 2
         )
+        self.use_xformers = use_xformers
 
     def forward(self, tokens: torch.Tensor, start_pos: int):
         _bsz, seqlen = tokens.shape
@@ -230,7 +235,7 @@ class Transformer(nn.Module):
         freqs_cis = self.freqs_cis[start_pos : start_pos + seqlen]
 
         mask = None
-        if seqlen > 1:
+        if not self.use_xformers and seqlen > 1:
             mask = torch.full((1, 1, seqlen, seqlen), float("-inf"), device=tokens.device)
             mask = torch.triu(mask, diagonal=start_pos + 1).type_as(h)
 
