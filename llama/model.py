@@ -219,14 +219,16 @@ class FeedForward(nn.Module):
 
 
 class TransformerBlock(nn.Module):
-    def __init__(self, layer_id: int, args: ModelArgs, use_xformers=True, use_checkpoint=False, use_checkpoint_activations=True):
+    def __init__(self, layer_id: int, args: ModelArgs, use_xformers=True, use_checkpoint=False, use_checkpoint_activations=True,
+                 use_cache=False):
         super().__init__()
         self.n_heads = args.n_heads
         self.dim = args.dim
         self.head_dim = args.dim // args.n_heads
         self.attention = Attention(args, use_xformers=use_xformers, 
                                    use_checkpoint=False,
-                                   use_checkpoint_activations=use_checkpoint_activations
+                                   use_checkpoint_activations=use_checkpoint_activations,
+                                   use_cache=use_cache,
                                    )
         self.feed_forward = FeedForward(
             dim=args.dim, hidden_dim=4 * args.dim, multiple_of=args.multiple_of,
@@ -252,7 +254,8 @@ class TransformerBlock(nn.Module):
 
 
 class Transformer(nn.Module):
-    def __init__(self, params: ModelArgs, use_xformers: bool = True, use_checkpoint=False, use_checkpoint_activations=True):
+    def __init__(self, params: ModelArgs, use_xformers: bool = True, use_checkpoint=False, use_checkpoint_activations=True,
+                 use_cache=False):
         super().__init__()
         self.params = params
         self.vocab_size = params.vocab_size
@@ -269,6 +272,7 @@ class Transformer(nn.Module):
                 use_xformers=use_xformers,
                 use_checkpoint=use_checkpoint,
                 use_checkpoint_activations=use_checkpoint_activations,
+                use_cache=use_cache,
             ))
 
         self.norm = RMSNorm(params.dim, eps=params.norm_eps)
