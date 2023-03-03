@@ -68,7 +68,10 @@ def apply_rotary_emb(
 
 
 class Attention(nn.Module):
-    def __init__(self, args: ModelArgs, use_cache=False, use_xformers=True, use_checkpoint=True):
+    def __init__(self, args: ModelArgs, use_cache=False, use_xformers=True, 
+                 use_checkpoint=False,
+                 use_checkpoint_activations=True,
+                 ):
         super().__init__()
 
         self.n_local_heads = args.n_heads // 1
@@ -98,6 +101,7 @@ class Attention(nn.Module):
         self.use_cache = use_cache
         self.use_xformers = use_xformers
         self.use_checkpoint = use_checkpoint
+        self.use_checkpoint_activations = use_checkpoint_activations
 
         if self.use_xformers:
             import xformers.ops as xops
@@ -125,7 +129,10 @@ class Attention(nn.Module):
         xk = xk.view(bsz, seqlen, self.n_local_heads, self.head_dim)
         xv = xv.view(bsz, seqlen, self.n_local_heads, self.head_dim)
 
-        xq, xk = apply_rotary_emb(xq, xk, freqs_cis=freqs_cis)
+        if self.use_checkpoint_activations:
+            xq, xk = checkpoint(apply_rotary_emb, xq, xk, freqs_cis=freqs_cis)
+        else:
+            xq, xk = apply_rotary_emb(xq, xk, freqs_cis=freqs_cis)
 
         if self.use_cache:
             self.cache_k = self.cache_k.to(xq)
@@ -173,7 +180,8 @@ class FeedForward(nn.Module):
         dim: int,
         hidden_dim: int,
         multiple_of: int,
-        use_checkpoint=True,
+        use_checkpoint=False,
+        use_checkpoint_activations=True,
     ):
         super().__init__()
         hidden_dim = int(2 * hidden_dim / 3)
@@ -190,27 +198,40 @@ class FeedForward(nn.Module):
         )
 
         self.use_checkpoint = use_checkpoint
+        self.use_checkpoint_activations = use_checkpoint_activations
 
     def forward(self, x):
         if self.use_checkpoint:
             return checkpoint(self._forward, x,)
         return self._forward(x,)
+    
+    def _silu_mm(self, y, x):
+        return F.silu(y) * self.w3(x)
 
+    def silu_mm(self, y, x):
+        if self.use_checkpoint_activations:
+            return checkpoint(self._silu_mm, y, x)
+        return self._silu_mm(y, x)
 
     def _forward(self, x):
-        return self.w2(F.silu(self.w1(x)) * self.w3(x))
+        return self.w2(self.silu_mm(self.w1(x), x)
+        # return self.w2(F.silu(self.w1(x)) * self.w3(x))
 
 
 class TransformerBlock(nn.Module):
-    def __init__(self, layer_id: int, args: ModelArgs, use_xformers=True, use_checkpoint=True):
+    def __init__(self, layer_id: int, args: ModelArgs, use_xformers=True, use_checkpoint=False, use_checkpoint_activations=True):
         super().__init__()
         self.n_heads = args.n_heads
         self.dim = args.dim
         self.head_dim = args.dim // args.n_heads
-        self.attention = Attention(args, use_xformers=use_xformers, use_checkpoint=False)
+        self.attention = Attention(args, use_xformers=use_xformers, 
+                                   use_checkpoint=use_checkpoint,
+                                   use_checkpoint_activations=use_checkpoint_activations
+                                   )
         self.feed_forward = FeedForward(
             dim=args.dim, hidden_dim=4 * args.dim, multiple_of=args.multiple_of,
-            use_checkpoint=False
+            use_checkpoint=use_checkpoint,
+            use_checkpoint_activations=use_checkpoint_activations
         )
         self.layer_id = layer_id
         self.attention_norm = RMSNorm(args.dim, eps=args.norm_eps)
@@ -218,69 +239,50 @@ class TransformerBlock(nn.Module):
         
         self.use_checkpoint = use_checkpoint
 
-    def forward(self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor]):
-        if self.use_checkpoint:
-            return checkpoint(self._forward, x, start_pos, freqs_cis, mask)
-        return self._forward(x, start_pos, freqs_cis, mask)
-
-    def _forward(self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor]):
-        h = x + self.attention.forward(self.attention_norm(x), start_pos, freqs_cis, mask)
-        out = h + self.feed_forward.forward(self.ffn_norm(h))
-        return out
-
 
 class Transformer(nn.Module):
-    def __init__(self, params: ModelArgs, use_xformers: bool = True, use_checkpoint=True):
+    def __init__(self, params: ModelArgs, use_xformers: bool = True, use_checkpoint=False, use_checkpoint_activations=True):
         super().__init__()
         self.params = params
         self.vocab_size = params.vocab_size
         self.n_layers = params.n_layers
 
         self.tok_embeddings = nn.Embedding(
-            params.vocab_size, params.dim,
+            params.vocab_size, params.dim, 
         )
 
         self.layers = torch.nn.ModuleList()
         for layer_id in range(params.n_layers):
             self.layers.append(TransformerBlock(
-                layer_id, params,
+                layer_id, params, 
                 use_xformers=use_xformers,
-                use_checkpoint=False,
+                use_checkpoint=use_checkpoint,
+                use_checkpoint_activations=use_checkpoint_activations,
             ))
 
         self.norm = RMSNorm(params.dim, eps=params.norm_eps)
         self.output = nn.Linear(
-            params.dim, params.vocab_size, bias=False,
+            params.dim, params.vocab_size, bias=False, 
         )
 
         self.freqs_cis = precompute_freqs_cis(
             self.params.dim // self.params.n_heads, self.params.max_seq_len * 2
         )
         self.use_xformers = use_xformers
-        self.use_checkpoint = use_checkpoint
 
-    def forward(self, tokens, start_pos):
-        if self.use_checkpoint:
-            h = checkpoint(self._forward, tokens, start_pos)
-        else:
-            h = self._forward(tokens, start_pos)
-        output = self.output(h)
-        return output.float()
-
-
-    def _forward(self, tokens: torch.Tensor, start_pos: int):
+    def forward(self, tokens: torch.Tensor, start_pos: int):
         _bsz, seqlen = tokens.shape
         h = self.tok_embeddings(tokens)
         self.freqs_cis = self.freqs_cis.to(h.device)
-        freqs_cis = self.freqs_cis[start_pos: start_pos + seqlen]
+        freqs_cis = self.freqs_cis[start_pos : start_pos + seqlen]
 
         mask = None
         if not self.use_xformers and seqlen > 1:
-            mask = torch.full((1, 1, seqlen, seqlen),
-                              float("-inf"), device=tokens.device)
+            mask = torch.full((1, 1, seqlen, seqlen), float("-inf"), device=tokens.device)
             mask = torch.triu(mask, diagonal=start_pos + 1).type_as(h)
 
         for layer in self.layers:
             h = layer(h, start_pos, freqs_cis, mask)
         h = self.norm(h)
-        return h
+        output = self.output(h)
+        return output.float()
