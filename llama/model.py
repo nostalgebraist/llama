@@ -237,36 +237,43 @@ class Transformer(nn.Module):
         self.n_layers = params.n_layers
 
         self.tok_embeddings = nn.Embedding(
-            params.vocab_size, params.dim, 
+            params.vocab_size, params.dim,
         )
 
         self.layers = torch.nn.ModuleList()
         for layer_id in range(params.n_layers):
             self.layers.append(TransformerBlock(
-                layer_id, params, 
+                layer_id, params,
                 use_xformers=use_xformers,
-                use_checkpoint=use_checkpoint,
+                use_checkpoint=False,
             ))
 
         self.norm = RMSNorm(params.dim, eps=params.norm_eps)
         self.output = nn.Linear(
-            params.dim, params.vocab_size, bias=False, 
+            params.dim, params.vocab_size, bias=False,
         )
 
         self.freqs_cis = precompute_freqs_cis(
             self.params.dim // self.params.n_heads, self.params.max_seq_len * 2
         )
         self.use_xformers = use_xformers
+        self.use_checkpoint = use_checkpoint
 
-    def forward(self, tokens: torch.Tensor, start_pos: int):
+    def forward(self, tokens, start_pos):
+        if self.use_checkpoint:
+            return checkpoint(self._forward, tokens, start_pos)
+        return self._forward(tokens, start_pos)
+
+    def _forward(self, tokens: torch.Tensor, start_pos: int):
         _bsz, seqlen = tokens.shape
         h = self.tok_embeddings(tokens)
         self.freqs_cis = self.freqs_cis.to(h.device)
-        freqs_cis = self.freqs_cis[start_pos : start_pos + seqlen]
+        freqs_cis = self.freqs_cis[start_pos: start_pos + seqlen]
 
         mask = None
         if not self.use_xformers and seqlen > 1:
-            mask = torch.full((1, 1, seqlen, seqlen), float("-inf"), device=tokens.device)
+            mask = torch.full((1, 1, seqlen, seqlen),
+                              float("-inf"), device=tokens.device)
             mask = torch.triu(mask, diagonal=start_pos + 1).type_as(h)
 
         for layer in self.layers:
