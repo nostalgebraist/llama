@@ -72,7 +72,7 @@ class Attention(nn.Module):
                  use_checkpoint=False,
                  use_checkpoint_activations=True,
                  lora=True,
-                 lora_r=16,
+                 lora_r=8,
                  ):
         super().__init__()
 
@@ -96,6 +96,11 @@ class Attention(nn.Module):
                 bias=False,
             )
         else:
+            self.wk = lora.Linear(
+                args.dim,
+                args.n_heads * self.head_dim,
+                bias=False,
+            )
             self.wq = lora.Linear(
                 args.dim,
                 args.n_heads * self.head_dim,
@@ -201,20 +206,34 @@ class FeedForward(nn.Module):
         multiple_of: int,
         use_checkpoint=False,
         use_checkpoint_activations=True,
+        lora=True,
+        lora_r=4,
     ):
         super().__init__()
         hidden_dim = int(2 * hidden_dim / 3)
         hidden_dim = multiple_of * ((hidden_dim + multiple_of - 1) // multiple_of)
 
+        self.lora = lora
+
         self.w1 = nn.Linear(
-            dim, hidden_dim, bias=False, 
+            dim, hidden_dim, bias=False,
         )
-        self.w2 = nn.Linear(
-            hidden_dim, dim, bias=False, 
-        )
-        self.w3 = nn.Linear(
-            dim, hidden_dim, bias=False, 
-        )
+
+        if self.lora:
+            import loralib as lora
+            self.w2 = lora.Linear(
+                hidden_dim, dim, bias=False, r=lora_r
+            )
+            self.w3 = lora.Linear(
+                dim, hidden_dim, bias=False, r=lora_r
+            )
+        else:
+            self.w2 = nn.Linear(
+                hidden_dim, dim, bias=False, 
+            )
+            self.w3 = nn.Linear(
+                dim, hidden_dim, bias=False, 
+            )
 
         self.use_checkpoint = use_checkpoint
         self.use_checkpoint_activations = use_checkpoint_activations
