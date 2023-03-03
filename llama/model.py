@@ -114,7 +114,7 @@ class Attention(nn.Module):
 
     def forward(self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor]):
         if self.use_checkpoint:
-            return checkpoint(self._forward, (x, start_pos, freqs_cis, mask))
+            return checkpoint(self._forward, x, start_pos, freqs_cis, mask)
         return self._forward(x, start_pos, freqs_cis, mask)
 
     def _forward(self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor]):
@@ -193,7 +193,7 @@ class FeedForward(nn.Module):
 
     def forward(self, x):
         if self.use_checkpoint:
-            return checkpoint(self._forward, (x,))
+            return checkpoint(self._forward, x,)
         return self._forward(x,)
 
 
