@@ -130,7 +130,7 @@ class Attention(nn.Module):
         xv = xv.view(bsz, seqlen, self.n_local_heads, self.head_dim)
 
         if self.use_checkpoint_activations:
-            xq, xk = checkpoint(apply_rotary_emb, xq, xk, freqs_cis=freqs_cis)
+            xq, xk = checkpoint(apply_rotary_emb, xq, xk, freqs_cis)
         else:
             xq, xk = apply_rotary_emb(xq, xk, freqs_cis=freqs_cis)
 
