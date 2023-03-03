@@ -71,23 +71,42 @@ class Attention(nn.Module):
     def __init__(self, args: ModelArgs, use_cache=False, use_xformers=True, 
                  use_checkpoint=False,
                  use_checkpoint_activations=True,
+                 lora=True,
+                 lora_r=16,
                  ):
         super().__init__()
 
         self.n_local_heads = args.n_heads // 1
         self.head_dim = args.dim // args.n_heads
 
-        self.wq = nn.Linear(
-            args.dim,
-            args.n_heads * self.head_dim,
-            bias=False,
-        )
+        self.lora = lora
+        if self.lora:
+            import loralib as lora
+
+            self.wq = lora.Linear(
+                args.dim,
+                args.n_heads * self.head_dim,
+                r=lora_r,
+                bias=False,
+            )
+            self.wv = lora.Linear(
+                args.dim,
+                args.n_heads * self.head_dim,
+                r=lora_r,
+                bias=False,
+            )
+        else:
+            self.wq = lora.Linear(
+                args.dim,
+                args.n_heads * self.head_dim,
+                bias=False,
+            )
+            self.wv = lora.Linear(
+                args.dim,
+                args.n_heads * self.head_dim,
+                bias=False,
+            )
         self.wk = nn.Linear(
-            args.dim,
-            args.n_heads * self.head_dim,
-            bias=False,
-        )
-        self.wv = nn.Linear(
             args.dim,
             args.n_heads * self.head_dim,
             bias=False,
