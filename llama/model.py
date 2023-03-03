@@ -8,6 +8,7 @@ import math
 import torch
 from torch import nn
 import torch.nn.functional as F
+from torch.utils.checkpoint import checkpoint
 
 
 @dataclass
@@ -67,7 +68,7 @@ def apply_rotary_emb(
 
 
 class Attention(nn.Module):
-    def __init__(self, args: ModelArgs, use_cache=False, use_xformers=True):
+    def __init__(self, args: ModelArgs, use_cache=False, use_xformers=True, use_checkpoint=True):
         super().__init__()
 
         self.n_local_heads = args.n_heads // 1
@@ -96,6 +97,8 @@ class Attention(nn.Module):
 
         self.use_cache = use_cache
         self.use_xformers = use_xformers
+        self.use_checkpoint = use_checkpoint
+
         if self.use_xformers:
             import xformers.ops as xops
             self.xops = xops
@@ -109,8 +112,12 @@ class Attention(nn.Module):
                 (args.max_batch_size, args.max_seq_len, self.n_local_heads, self.head_dim)
             ).cuda()
 
-
     def forward(self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor]):
+        if self.use_checkpoint:
+            return checkpoint(self._forward, (x, start_pos, freqs_cis, mask))
+        return self._forward(x, start_pos, freqs_cis, mask)
+
+    def _forward(self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor]):
         bsz, seqlen, _ = x.shape
         xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
 
@@ -166,6 +173,7 @@ class FeedForward(nn.Module):
         dim: int,
         hidden_dim: int,
         multiple_of: int,
+        use_checkpoint=True,
     ):
         super().__init__()
         hidden_dim = int(2 * hidden_dim / 3)
@@ -181,19 +189,28 @@ class FeedForward(nn.Module):
             dim, hidden_dim, bias=False, 
         )
 
+        self.use_checkpoint = use_checkpoint
+
     def forward(self, x):
+        if self.use_checkpoint:
+            return checkpoint(self._forward, (x,))
+        return self._forward(x,)
+
+
+    def _forward(self, x):
         return self.w2(F.silu(self.w1(x)) * self.w3(x))
 
 
 class TransformerBlock(nn.Module):
-    def __init__(self, layer_id: int, args: ModelArgs, use_xformers=True):
+    def __init__(self, layer_id: int, args: ModelArgs, use_xformers=True, use_checkpoint=True):
         super().__init__()
         self.n_heads = args.n_heads
         self.dim = args.dim
         self.head_dim = args.dim // args.n_heads
-        self.attention = Attention(args, use_xformers=use_xformers)
+        self.attention = Attention(args, use_xformers=use_xformers, use_checkpoint=use_checkpoint)
         self.feed_forward = FeedForward(
-            dim=args.dim, hidden_dim=4 * args.dim, multiple_of=args.multiple_of
+            dim=args.dim, hidden_dim=4 * args.dim, multiple_of=args.multiple_of,
+            use_checkpoint=use_checkpoint
         )
         self.layer_id = layer_id
         self.attention_norm = RMSNorm(args.dim, eps=args.norm_eps)
@@ -206,7 +223,7 @@ class TransformerBlock(nn.Module):
 
 
 class Transformer(nn.Module):
-    def __init__(self, params: ModelArgs, use_xformers: bool = True):
+    def __init__(self, params: ModelArgs, use_xformers: bool = True, use_checkpoint=True):
         super().__init__()
         self.params = params
         self.vocab_size = params.vocab_size
@@ -220,7 +237,8 @@ class Transformer(nn.Module):
         for layer_id in range(params.n_layers):
             self.layers.append(TransformerBlock(
                 layer_id, params, 
-                use_xformers=use_xformers
+                use_xformers=use_xformers,
+                use_checkpoint=use_checkpoint,
             ))
 
         self.norm = RMSNorm(params.dim, eps=params.norm_eps)
