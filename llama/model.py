@@ -67,7 +67,7 @@ def apply_rotary_emb(
 
 
 class Attention(nn.Module):
-    def __init__(self, args: ModelArgs, use_cache=False):
+    def __init__(self, args: ModelArgs, use_cache=False, use_xformers=True):
         super().__init__()
 
         self.n_local_heads = args.n_heads // 1
@@ -95,6 +95,10 @@ class Attention(nn.Module):
         )
 
         self.use_cache = use_cache
+        self.use_xformers = use_xformers
+        if self.use_xformers:
+            import xformers.ops as xops
+            self.xops = xops
 
         if self.use_cache:
             self.cache_k = torch.zeros(
@@ -131,11 +135,18 @@ class Attention(nn.Module):
         xq = xq.transpose(1, 2)
         keys = keys.transpose(1, 2)
         values = values.transpose(1, 2)
-        scores = torch.matmul(xq, keys.transpose(2, 3)) / math.sqrt(self.head_dim)
-        if mask is not None:
-            scores = scores + mask  # (bs, n_local_heads, slen, cache_len + slen)
-        scores = F.softmax(scores.float(), dim=-1).type_as(xq)
-        output = torch.matmul(scores, values)  # (bs, n_local_heads, slen, head_dim)
+
+        if self.use_xformers:
+            output = self.xops.memory_efficient_attention(
+                xq, keys, values, mask
+            )
+        else:
+            scores = torch.matmul(xq, keys.transpose(2, 3)) / math.sqrt(self.head_dim)
+            if mask is not None:
+                scores = scores + mask  # (bs, n_local_heads, slen, cache_len + slen)
+            scores = F.softmax(scores.float(), dim=-1).type_as(xq)
+            output = torch.matmul(scores, values)  # (bs, n_local_heads, slen, head_dim)
+
         output = output.transpose(
             1, 2
         ).contiguous().view(bsz, seqlen, -1)
