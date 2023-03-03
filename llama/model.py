@@ -261,8 +261,12 @@ class Transformer(nn.Module):
 
     def forward(self, tokens, start_pos):
         if self.use_checkpoint:
-            return checkpoint(self._forward, tokens, start_pos)
-        return self._forward(tokens, start_pos)
+            h = checkpoint(self._forward, tokens, start_pos)
+        else:
+            h = self._forward(tokens, start_pos)
+        output = self.output(h)
+        return output.float()
+
 
     def _forward(self, tokens: torch.Tensor, start_pos: int):
         _bsz, seqlen = tokens.shape
@@ -279,5 +283,4 @@ class Transformer(nn.Module):
         for layer in self.layers:
             h = layer(h, start_pos, freqs_cis, mask)
         h = self.norm(h)
-        output = self.output(h)
-        return output.float()
+        return h
