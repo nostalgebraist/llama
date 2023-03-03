@@ -74,7 +74,7 @@ def apply_rotary_emb(
 
 
 class Attention(nn.Module):
-    def __init__(self, args: ModelArgs):
+    def __init__(self, args: ModelArgs, use_cache=False):
         super().__init__()
 
         self.n_local_heads = args.n_heads // fs_init.get_model_parallel_world_size()
@@ -109,12 +109,15 @@ class Attention(nn.Module):
             init_method=lambda x: x,
         )
 
-        self.cache_k = torch.zeros(
-            (args.max_batch_size, args.max_seq_len, self.n_local_heads, self.head_dim)
-        ).cuda()
-        self.cache_v = torch.zeros(
-            (args.max_batch_size, args.max_seq_len, self.n_local_heads, self.head_dim)
-        ).cuda()
+        self.use_cache = use_cache
+
+        if self.use_cache:
+            self.cache_k = torch.zeros(
+                (args.max_batch_size, args.max_seq_len, self.n_local_heads, self.head_dim)
+            ).cuda()
+            self.cache_v = torch.zeros(
+                (args.max_batch_size, args.max_seq_len, self.n_local_heads, self.head_dim)
+            ).cuda()
 
     def forward(self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor]):
         bsz, seqlen, _ = x.shape
@@ -124,16 +127,21 @@ class Attention(nn.Module):
         xk = xk.view(bsz, seqlen, self.n_local_heads, self.head_dim)
         xv = xv.view(bsz, seqlen, self.n_local_heads, self.head_dim)
 
+
         xq, xk = apply_rotary_emb(xq, xk, freqs_cis=freqs_cis)
 
-        self.cache_k = self.cache_k.to(xq)
-        self.cache_v = self.cache_v.to(xq)
+        if self.use_cache:
+            self.cache_k = self.cache_k.to(xq)
+            self.cache_v = self.cache_v.to(xq)
 
-        self.cache_k[:bsz, start_pos : start_pos + seqlen] = xk
-        self.cache_v[:bsz, start_pos : start_pos + seqlen] = xv
+            self.cache_k[:bsz, start_pos : start_pos + seqlen] = xk
+            self.cache_v[:bsz, start_pos : start_pos + seqlen] = xv
 
-        keys = self.cache_k[:bsz, : start_pos + seqlen]
-        values = self.cache_v[:bsz, : start_pos + seqlen]
+            keys = self.cache_k[:bsz, : start_pos + seqlen]
+            values = self.cache_v[:bsz, : start_pos + seqlen]
+        else:
+            keys = xk
+            values = xv
 
         xq = xq.transpose(1, 2)
         keys = keys.transpose(1, 2)
