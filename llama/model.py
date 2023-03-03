@@ -207,16 +207,23 @@ class TransformerBlock(nn.Module):
         self.n_heads = args.n_heads
         self.dim = args.dim
         self.head_dim = args.dim // args.n_heads
-        self.attention = Attention(args, use_xformers=use_xformers, use_checkpoint=use_checkpoint)
+        self.attention = Attention(args, use_xformers=use_xformers, use_checkpoint=False)
         self.feed_forward = FeedForward(
             dim=args.dim, hidden_dim=4 * args.dim, multiple_of=args.multiple_of,
-            use_checkpoint=use_checkpoint
+            use_checkpoint=False
         )
         self.layer_id = layer_id
         self.attention_norm = RMSNorm(args.dim, eps=args.norm_eps)
         self.ffn_norm = RMSNorm(args.dim, eps=args.norm_eps)
+        
+        self.use_checkpoint = use_checkpoint
 
     def forward(self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor]):
+        if self.use_checkpoint:
+            return checkpoint(self._forward, x, start_pos, freqs_cis, mask)
+        return self._forward(x, start_pos, freqs_cis, mask)
+
+    def _forward(self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor]):
         h = x + self.attention.forward(self.attention_norm(x), start_pos, freqs_cis, mask)
         out = h + self.feed_forward.forward(self.ffn_norm(h))
         return out
