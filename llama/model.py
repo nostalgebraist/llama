@@ -139,7 +139,7 @@ class Attention(nn.Module):
 
         if self.use_xformers:
             output = self.xops.memory_efficient_attention(
-                xq, keys, values, mask=self.mask
+                xq, keys, values, attn_bias=self.mask
             )
         else:
             scores = torch.matmul(xq, keys.transpose(2, 3)) / math.sqrt(self.head_dim)
