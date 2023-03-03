@@ -31,7 +31,7 @@ def setup_model_parallel() -> Tuple[int, int]:
     # return local_rank, world_size
 
 
-def load(ckpt_dir: str, tokenizer_path: str, local_rank: int, world_size: int) -> LLaMA:
+def load(ckpt_dir: str, tokenizer_path: str, local_rank: int, world_size: int, n_ctx) -> LLaMA:
     start_time = time.time()
     checkpoints = sorted(Path(ckpt_dir).glob("*.pth"))
     assert (
@@ -44,7 +44,7 @@ def load(ckpt_dir: str, tokenizer_path: str, local_rank: int, world_size: int) -
         params = json.loads(f.read())
 
     model_args: ModelArgs = ModelArgs(
-        max_seq_len=1024, max_batch_size=32, **params)
+        max_seq_len=n_ctx, max_batch_size=32, **params)
     tokenizer = Tokenizer(model_path=tokenizer_path)
     model_args.vocab_size = tokenizer.n_words
     # torch.set_default_tensor_type(torch.cuda.HalfTensor)
@@ -55,7 +55,6 @@ def load(ckpt_dir: str, tokenizer_path: str, local_rank: int, world_size: int) -
     generator = LLaMA(model, tokenizer)
     print(f"Loaded in {time.time() - start_time:.2f} seconds")
     return generator
-
 
 def main(ckpt_dir: str, tokenizer_path: str, temperature: float = 0.8, top_p: float = 0.95):
     # local_rank, world_size = setup_model_parallel()
