@@ -10,11 +10,6 @@ from torch import nn
 import torch.nn.functional as F
 
 import fairscale.nn.model_parallel.initialize as fs_init
-from fairscale.nn.model_parallel.layers import (
-    nn.Embedding,
-    nn.Linear,
-    nn.Linear,
-)
 
 
 @dataclass
