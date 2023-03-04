@@ -95,13 +95,13 @@ class Attention(nn.Module):
                 r=lora_r,
                 bias=False,
             )
-            self.wk = nn.lora.Linear(
+            self.wk = lora.Linear(
                 args.dim,
                 args.n_heads * self.head_dim,
                 r=lora_r,
                 bias=False,
             )
-            self.wo = nn.lora.Linear(
+            self.wo = lora.Linear(
                 args.n_heads * self.head_dim,
                 args.dim,
                 r=lora_r,
