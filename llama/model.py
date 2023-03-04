@@ -72,7 +72,7 @@ class Attention(nn.Module):
                  use_checkpoint=False,
                  use_checkpoint_activations=True,
                  lora=True,
-                 lora_r=8,
+                 lora_r=16,
                  ):
         super().__init__()
 
@@ -95,12 +95,19 @@ class Attention(nn.Module):
                 r=lora_r,
                 bias=False,
             )
-        else:
-            self.wk = lora.Linear(
+            self.wk = nn.lora.Linear(
                 args.dim,
                 args.n_heads * self.head_dim,
+                r=lora_r,
                 bias=False,
             )
+            self.wo = nn.lora.Linear(
+                args.n_heads * self.head_dim,
+                args.dim,
+                r=lora_r,
+                bias=False,
+            )
+        else:
             self.wq = lora.Linear(
                 args.dim,
                 args.n_heads * self.head_dim,
@@ -111,16 +118,16 @@ class Attention(nn.Module):
                 args.n_heads * self.head_dim,
                 bias=False,
             )
-        self.wk = nn.Linear(
-            args.dim,
-            args.n_heads * self.head_dim,
-            bias=False,
-        )
-        self.wo = nn.Linear(
-            args.n_heads * self.head_dim,
-            args.dim,
-            bias=False,
-        )
+            self.wk = nn.Linear(
+                args.dim,
+                args.n_heads * self.head_dim,
+                bias=False,
+            )
+            self.wo = nn.Linear(
+                args.n_heads * self.head_dim,
+                args.dim,
+                bias=False,
+            )
 
         self.use_cache = use_cache
         self.use_xformers = use_xformers
@@ -207,7 +214,7 @@ class FeedForward(nn.Module):
         use_checkpoint=False,
         use_checkpoint_activations=True,
         lora=True,
-        lora_r=4,
+        lora_r=16,
     ):
         super().__init__()
         hidden_dim = int(2 * hidden_dim / 3)
@@ -215,12 +222,11 @@ class FeedForward(nn.Module):
 
         self.lora = lora
 
-        self.w1 = nn.Linear(
-            dim, hidden_dim, bias=False,
-        )
-
         if self.lora:
             import loralib as lora
+            self.w1 = lora.Linear(
+                dim, hidden_dim, bias=False, r=lora_r
+            )
             self.w2 = lora.Linear(
                 hidden_dim, dim, bias=False, r=lora_r
             )
@@ -228,6 +234,9 @@ class FeedForward(nn.Module):
                 dim, hidden_dim, bias=False, r=lora_r
             )
         else:
+            self.w1 = nn.Linear(
+                dim, hidden_dim, bias=False,
+            )
             self.w2 = nn.Linear(
                 hidden_dim, dim, bias=False, 
             )
@@ -258,7 +267,7 @@ class FeedForward(nn.Module):
 
 class TransformerBlock(nn.Module):
     def __init__(self, layer_id: int, args: ModelArgs, use_xformers=True, use_checkpoint=False, use_checkpoint_activations=True,
-                 use_cache=False):
+                 use_cache=False, use_lora=True, lora_r=16):
         super().__init__()
         self.n_heads = args.n_heads
         self.dim = args.dim
@@ -267,11 +276,13 @@ class TransformerBlock(nn.Module):
                                    use_checkpoint=False,
                                    use_checkpoint_activations=use_checkpoint_activations,
                                    use_cache=use_cache,
+                                   lora=use_lora, lora_r=lora_r
                                    )
         self.feed_forward = FeedForward(
             dim=args.dim, hidden_dim=4 * args.dim, multiple_of=args.multiple_of,
             use_checkpoint=False,
-            use_checkpoint_activations=use_checkpoint_activations
+            use_checkpoint_activations=use_checkpoint_activations,
+            lora=use_lora, lora_r=lora_r
         )
         self.layer_id = layer_id
         self.attention_norm = RMSNorm(args.dim, eps=args.norm_eps)
@@ -293,7 +304,8 @@ class TransformerBlock(nn.Module):
 
 class Transformer(nn.Module):
     def __init__(self, params: ModelArgs, use_xformers: bool = True, use_checkpoint=False, use_checkpoint_activations=True,
-                 use_cache=False):
+                 use_cache=False,
+                 use_lora=True, lora_r=16):
         super().__init__()
         self.params = params
         self.vocab_size = params.vocab_size
@@ -311,6 +323,7 @@ class Transformer(nn.Module):
                 use_checkpoint=use_checkpoint,
                 use_checkpoint_activations=use_checkpoint_activations,
                 use_cache=use_cache,
+                use_lora=use_lora, lora_r=lora_r
             ))
 
         self.norm = RMSNorm(params.dim, eps=params.norm_eps)
