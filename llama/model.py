@@ -3,12 +3,13 @@
 
 from typing import Optional, Tuple
 from dataclasses import dataclass
+from functools import partial
 import math
 
 import torch
 from torch import nn
 import torch.nn.functional as F
-from torch.utils.checkpoint import checkpoint
+from torch.utils.checkpoint import checkpoint, checkpoint_sequential
 
 
 @dataclass
@@ -254,7 +255,9 @@ class TransformerBlock(nn.Module):
 
 
 class Transformer(nn.Module):
-    def __init__(self, params: ModelArgs, use_xformers: bool = True, use_checkpoint=False, use_checkpoint_activations=True,
+    def __init__(self, params: ModelArgs, use_xformers: bool = True,
+                 n_checkpoint_segments=4,
+                 freeze_layers_below_n=0,
                  use_cache=False):
         super().__init__()
         self.params = params
@@ -270,8 +273,8 @@ class Transformer(nn.Module):
             self.layers.append(TransformerBlock(
                 layer_id, params, 
                 use_xformers=use_xformers,
-                use_checkpoint=use_checkpoint,
-                use_checkpoint_activations=use_checkpoint_activations,
+                use_checkpoint=False,
+                use_checkpoint_activations=False,
                 use_cache=use_cache,
             ))
 
@@ -285,6 +288,11 @@ class Transformer(nn.Module):
         )
         self.use_xformers = use_xformers
 
+        self.freeze_layers_below_n = freeze_layers_below_n
+        for layer in self.layers[:-self.freeze_layers_below_n]:
+            layer.requires_grad_(False)
+        self.n_checkpoint_segments = n_checkpoint_segments
+
     def forward(self, tokens: torch.Tensor, start_pos: int):
         _bsz, seqlen = tokens.shape
         h = self.tok_embeddings(tokens)
@@ -296,8 +304,19 @@ class Transformer(nn.Module):
             mask = torch.full((1, 1, seqlen, seqlen), float("-inf"), device=tokens.device)
             mask = torch.triu(mask, diagonal=start_pos + 1).type_as(h)
 
-        for layer in self.layers:
+
+        for layer in self.layers[:-self.freeze_layers_below_n]:
             h = layer(h, start_pos, freqs_cis, mask)
+        h.requires_grad_(True)
+
+        fwds = [partial(layer.forward, start_pos=start_pos, freqs_cis=freqs_cis, mask=mask)
+                for layer in self.layers[-self.freeze_layers_below_n:]]
+
+        h = checkpoint_sequential(
+            fwds, len(fwds)//self.n_checkpoint_segments,
+            h
+        )
+
         h = self.norm(h)
         output = self.output(h)
         return output.float()
