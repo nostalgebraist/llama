@@ -291,6 +291,8 @@ class Transformer(nn.Module):
         self.freeze_layers_below_n = freeze_layers_below_n
         for layer in self.layers[:-self.freeze_layers_below_n]:
             layer.requires_grad_(False)
+        if self.freeze_layers_below_n > 0:
+            self.tok_embeddings.requires_grad_(False)
         self.n_checkpoint_segments = n_checkpoint_segments
 
     def forward(self, tokens: torch.Tensor, start_pos: int):
