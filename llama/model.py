@@ -5,11 +5,41 @@ from typing import Optional, Tuple
 from dataclasses import dataclass
 from functools import partial
 import math
+import bitsandbytes as bnb
 
 import torch
 from torch import nn
 import torch.nn.functional as F
 from torch.utils.checkpoint import checkpoint, checkpoint_sequential
+
+
+class Linear8bitLtInference(bnb.nn.Linear8bitLt):
+    def __init__(self,
+                 input_features, output_features, bias=True,
+                 memory_efficient_backward=False, threshold=0.0, index=None):
+        bnb.nn.Linear8bitLt.__init__(
+            self,
+            input_features, output_features, bias=bias,
+            memory_efficient_backward=memory_efficient_backward,
+            threshold=threshold,
+            index=index,
+            has_fp16_weights=False,
+        )
+
+
+def init_8bit(loading_code, **kwargs):
+    def fn():
+        ORIG_LINEAR = torch.nn.__dict__['Linear']
+
+        torch.nn.__dict__['Linear'] = Linear8bitLtInference
+        try:
+            result = loading_code(**kwargs)
+        finally:
+            torch.nn.__dict__['Linear'] = ORIG_LINEAR
+
+        return result
+
+    return fn
 
 
 @dataclass
@@ -258,11 +288,13 @@ class Transformer(nn.Module):
     def __init__(self, params: ModelArgs, use_xformers: bool = True,
                  n_checkpoint_segments=4,
                  freeze_layers_below_n=0,
+                 quantize_frozen=True,
                  use_cache=False):
         super().__init__()
         self.params = params
         self.vocab_size = params.vocab_size
         self.n_layers = params.n_layers
+        self.freeze_layers_below_n = freeze_layers_below_n
 
         self.tok_embeddings = nn.Embedding(
             params.vocab_size, params.dim, 
@@ -270,13 +302,16 @@ class Transformer(nn.Module):
 
         self.layers = torch.nn.ModuleList()
         for layer_id in range(params.n_layers):
-            self.layers.append(TransformerBlock(
-                layer_id, params, 
+            def make_layer(): return TransformerBlock(
+                layer_id, params,
                 use_xformers=use_xformers,
                 use_checkpoint=False,
                 use_checkpoint_activations=False,
                 use_cache=use_cache,
-            ))
+            )
+            if quantize_frozen and layer_id < self.freeze_layers_below_n:
+                make_layer = init_8bit(make_layer)
+            self.layers.append(make_layer())
 
         self.norm = RMSNorm(params.dim, eps=params.norm_eps)
         self.output = nn.Linear(
@@ -288,7 +323,6 @@ class Transformer(nn.Module):
         )
         self.use_xformers = use_xformers
 
-        self.freeze_layers_below_n = freeze_layers_below_n
         for layer in self.layers[:-self.freeze_layers_below_n]:
             layer.requires_grad_(False)
         if self.freeze_layers_below_n > 0:
