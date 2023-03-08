@@ -323,7 +323,7 @@ class Transformer(nn.Module):
         )
         self.use_xformers = use_xformers
 
-        for layer in self.layers[:-self.freeze_layers_below_n]:
+        for layer in self.layers[:self.freeze_layers_below_n]:
             layer.requires_grad_(False)
         if self.freeze_layers_below_n > 0:
             self.tok_embeddings.requires_grad_(False)
@@ -341,12 +341,12 @@ class Transformer(nn.Module):
             mask = torch.triu(mask, diagonal=start_pos + 1).type_as(h)
 
 
-        for layer in self.layers[:-self.freeze_layers_below_n]:
+        for layer in self.layers[:self.freeze_layers_below_n]:
             h = layer(h, start_pos, freqs_cis, mask)
         h.requires_grad_(True)
 
         fwds = [partial(layer.forward, start_pos=start_pos, freqs_cis=freqs_cis, mask=mask)
-                for layer in self.layers[-self.freeze_layers_below_n:]]
+                for layer in self.layers[self.freeze_layers_below_n:]]
 
         h = checkpoint_sequential(
             fwds, len(fwds)//self.n_checkpoint_segments,
