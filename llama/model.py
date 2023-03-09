@@ -139,12 +139,12 @@ class Attention(nn.Module):
                 bias=False,
             )
         else:
-            self.wq = loralib.Linear(
+            self.wq = nn.Linear(
                 args.dim,
                 args.n_heads * self.head_dim,
                 bias=False,
             )
-            self.wv = loralib.Linear(
+            self.wv = nn.Linear(
                 args.dim,
                 args.n_heads * self.head_dim,
                 bias=False,
