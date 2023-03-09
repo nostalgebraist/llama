@@ -358,9 +358,10 @@ class Transformer(nn.Module):
                 use_checkpoint=False,
                 use_checkpoint_activations=False,
                 use_cache=use_cache,
-                use_lora=use_lora, lora_r=lora_r
+                use_lora=use_lora and layer_id >= self.freeze_layers_below_n,
+                lora_r=lora_r
             )
-            if quantize_frozen and layer_id < self.freeze_layers_below_n:
+            if quantize_frozen and (layer_id < self.freeze_layers_below_n) or use_lora:
                 make_layer = init_8bit(make_layer)
             self.layers.append(make_layer())
 
