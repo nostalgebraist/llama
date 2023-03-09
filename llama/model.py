@@ -112,39 +112,39 @@ class Attention(nn.Module):
 
         self.lora = lora
         if self.lora:
-            import loralib as lora
+            import loralib
 
-            self.wq = lora.Linear(
+            self.wq = loralib.Linear(
                 args.dim,
                 args.n_heads * self.head_dim,
                 r=lora_r,
                 bias=False,
             )
-            self.wv = lora.Linear(
+            self.wv = loralib.Linear(
                 args.dim,
                 args.n_heads * self.head_dim,
                 r=lora_r,
                 bias=False,
             )
-            self.wk = lora.Linear(
+            self.wk = loralib.Linear(
                 args.dim,
                 args.n_heads * self.head_dim,
                 r=lora_r,
                 bias=False,
             )
-            self.wo = lora.Linear(
+            self.wo = loralib.Linear(
                 args.n_heads * self.head_dim,
                 args.dim,
                 r=lora_r,
                 bias=False,
             )
         else:
-            self.wq = lora.Linear(
+            self.wq = loralib.Linear(
                 args.dim,
                 args.n_heads * self.head_dim,
                 bias=False,
             )
-            self.wv = lora.Linear(
+            self.wv = loralib.Linear(
                 args.dim,
                 args.n_heads * self.head_dim,
                 bias=False,
@@ -254,14 +254,14 @@ class FeedForward(nn.Module):
         self.lora = lora
 
         if self.lora:
-            import loralib as lora
-            self.w1 = lora.Linear(
+            import loralib
+            self.w1 = loralib.Linear(
                 dim, hidden_dim, bias=False, r=lora_r
             )
-            self.w2 = lora.Linear(
+            self.w2 = loralib.Linear(
                 hidden_dim, dim, bias=False, r=lora_r
             )
-            self.w3 = lora.Linear(
+            self.w3 = loralib.Linear(
                 dim, hidden_dim, bias=False, r=lora_r
             )
         else:
