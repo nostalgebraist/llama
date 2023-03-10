@@ -296,6 +296,7 @@ class Transformer(nn.Module):
                  n_checkpoint_segments=4,
                  freeze_layers_below_n=0,
                  quantize_frozen=True,
+                 quantize_threshold=6,
                  use_cache=False,
                  use_lora=True, 
                  lora_r=16):
@@ -320,6 +321,7 @@ class Transformer(nn.Module):
                 use_lora=use_lora and layer_id >= self.freeze_layers_below_n,
                 lora_kwargs=dict(r=lora_r),
                 use_8bit=quantize_frozen and base_weights_frozen,
+                bnb_kwargs=dict(threshold=quantize_threshold),
             )
             def make_layer(): return TransformerBlock(
                 layer_id, params,
@@ -337,6 +339,7 @@ class Transformer(nn.Module):
             use_lora=use_lora,
             lora_kwargs=dict(r=lora_r),
             use_8bit=quantize_frozen and use_lora,
+            bnb_kwargs=dict(threshold=quantize_threshold),
         )
         self.output = make_linear(
             params.dim, params.vocab_size, bias=False, 
