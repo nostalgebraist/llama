@@ -252,7 +252,8 @@ class FeedForward(nn.Module):
 
 class TransformerBlock(nn.Module):
     def __init__(self, layer_id: int, args: ModelArgs, use_xformers=True, use_checkpoint=False, use_checkpoint_activations=True,
-                 use_cache=False, use_lora=True, lora_r=16):
+                 use_cache=False, 
+                 linear_kwargs=None):
         super().__init__()
         self.n_heads = args.n_heads
         self.dim = args.dim
