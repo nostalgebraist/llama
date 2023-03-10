@@ -3,6 +3,7 @@ import math
 import torch as th
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.checkpoint import checkpoint
 
 import bitsandbytes as bnb
 
@@ -35,6 +36,7 @@ class LoraWrapper(Wrapper):
                  child: nn.Module,
                  r: int,
                  lora_alpha=1,
+                 use_checkpoint=False,
                  ):
         super().__init__(child)
         assert hasattr(self.child, 'in_features')
@@ -42,6 +44,7 @@ class LoraWrapper(Wrapper):
 
         self.r = r
         self.lora_alpha = lora_alpha
+        self.use_checkpoint = use_checkpoint
         self.scaling = self.lora_alpha / max(1, self.r)
 
         if self.r > 0:
@@ -62,10 +65,22 @@ class LoraWrapper(Wrapper):
             nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
             nn.init.zeros_(self.lora_B)
 
+    def _lora_down(self, x):
+        return x.to(self.lora_A.dtype) @ self.lora_A
+    
+    def _lora_up(self, y):
+        return (self.scaling * y @ self.lora_B)
+
     def forward(self, x):
         out = self.child(x)
         if self.r > 0:
-            out = out + (self.scaling * x.to(self.lora_A.dtype) @ self.lora_A @ self.lora_B).to(out.dtype)
+            # delta = (self.scaling * x.to(self.lora_A.dtype) @ self.lora_A @ self.lora_B).to(out.dtype)
+            if self.use_checkpoint:
+                y = self._lora_down(x)
+                delta = checkpoint(self._lora_up, y).to(out.dtype)
+            else:
+                delta = self._lora_up(self._lora_down(x)).to(out.dtype)
+            out = out + delta
         return out
 
     def extra_repr(self):
