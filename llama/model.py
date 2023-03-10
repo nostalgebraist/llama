@@ -318,7 +318,7 @@ class Transformer(nn.Module):
             
             linear_kwargs = dict(
                 use_lora=use_lora and layer_id >= self.freeze_layers_below_n,
-                lora_kwargs=dict(lora_r=lora_r),
+                lora_kwargs=dict(r=lora_r),
                 use_8bit=quantize_frozen and base_weights_frozen,
             )
             def make_layer(): return TransformerBlock(
@@ -335,7 +335,7 @@ class Transformer(nn.Module):
         
         linear_kwargs = dict(
             use_lora=use_lora,
-            lora_kwargs=dict(lora_r=lora_r),
+            lora_kwargs=dict(r=lora_r),
             use_8bit=quantize_frozen and use_lora,
         )
         self.output = make_linear(
