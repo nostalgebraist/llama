@@ -299,6 +299,7 @@ class Transformer(nn.Module):
                  quantize_threshold=6,
                  use_cache=False,
                  use_lora=True, 
+                 use_lora_checkpoint=False,
                  lora_r=16):
         super().__init__()
         self.params = params
@@ -319,7 +320,7 @@ class Transformer(nn.Module):
             
             linear_kwargs = dict(
                 use_lora=use_lora and layer_id >= self.freeze_layers_below_n,
-                lora_kwargs=dict(r=lora_r),
+                lora_kwargs=dict(r=lora_r, use_checkpoint=use_lora_checkpoint),
                 use_8bit=quantize_frozen and base_weights_frozen,
                 bnb_kwargs=dict(threshold=quantize_threshold),
             )
@@ -337,7 +338,7 @@ class Transformer(nn.Module):
         
         linear_kwargs = dict(
             use_lora=use_lora,
-            lora_kwargs=dict(r=lora_r),
+            lora_kwargs=dict(r=lora_r, use_checkpoint=use_lora_checkpoint),
             use_8bit=quantize_frozen and use_lora,
             bnb_kwargs=dict(threshold=quantize_threshold),
         )
