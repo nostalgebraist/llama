@@ -94,9 +94,6 @@ def make_linear(
     if use_8bit:
         base = bnb.modules.Linear8bitLt(
             in_features, out_features, bias, **bnb_kwargs)
-        base.weight.data = base.weight.data.half()
-        if base.bias is not None:
-            base.bias.data = base.bias.data.half()
         if bnb_force_no_igemmlt:
             base.state.force_no_igemmlt = True
     else:
