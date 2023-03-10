@@ -72,7 +72,10 @@ class LoraWrapper(Wrapper):
         return (self.scaling * y @ self.lora_B)
 
     def forward(self, x):
-        out = self.child(x)
+        if self.use_checkpoint:
+            out = checkpoint(self.child.forward, x)
+        else:
+            out = self.child(x)
         if self.r > 0:
             # delta = (self.scaling * x.to(self.lora_A.dtype) @ self.lora_A @ self.lora_B).to(out.dtype)
             if self.use_checkpoint:
