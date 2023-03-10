@@ -65,7 +65,7 @@ class LoraWrapper(Wrapper):
     def forward(self, x):
         out = self.child(x)
         if self.r > 0:
-            out = out + self.scaling * x @ self.lora_A @ self.lora_B
+            out = out + (self.scaling * x.to(self.lora_A.dtype) @ self.lora_A @ self.lora_B).to(out.dtype)
         return out
 
     def extra_repr(self):
