@@ -12,19 +12,7 @@ from torch import nn
 import torch.nn.functional as F
 from torch.utils.checkpoint import checkpoint, checkpoint_sequential
 
-
-class Linear8bitLtInference(bnb.nn.Linear8bitLt):
-    def __init__(self,
-                 input_features, output_features, bias=True,
-                 memory_efficient_backward=False, threshold=0.0, index=None):
-        bnb.nn.Linear8bitLt.__init__(
-            self,
-            input_features, output_features, bias=bias,
-            memory_efficient_backward=memory_efficient_backward,
-            threshold=threshold,
-            index=index,
-            has_fp16_weights=False,
-        )
+from llama.util import make_linear
 
 
 def init_8bit(loading_code, **kwargs):
@@ -102,63 +90,39 @@ class Attention(nn.Module):
     def __init__(self, args: ModelArgs, use_cache=False, use_xformers=True, 
                  use_checkpoint=False,
                  use_checkpoint_activations=True,
-                 lora=True,
-                 lora_r=16,
+                 linear_kwargs=None,
                  ):
         super().__init__()
+
+        linear_kwargs = linear_kwargs or {}
 
         self.n_local_heads = args.n_heads // 1
         self.head_dim = args.dim // args.n_heads
 
-        self.lora = lora
-        if self.lora:
-            import loralib
-
-            self.wq = loralib.Linear(
-                args.dim,
-                args.n_heads * self.head_dim,
-                r=lora_r,
-                bias=False,
-            )
-            self.wv = loralib.Linear(
-                args.dim,
-                args.n_heads * self.head_dim,
-                r=lora_r,
-                bias=False,
-            )
-            self.wk = loralib.Linear(
-                args.dim,
-                args.n_heads * self.head_dim,
-                r=lora_r,
-                bias=False,
-            )
-            self.wo = loralib.Linear(
-                args.n_heads * self.head_dim,
-                args.dim,
-                r=lora_r,
-                bias=False,
-            )
-        else:
-            self.wq = nn.Linear(
-                args.dim,
-                args.n_heads * self.head_dim,
-                bias=False,
-            )
-            self.wv = nn.Linear(
-                args.dim,
-                args.n_heads * self.head_dim,
-                bias=False,
-            )
-            self.wk = nn.Linear(
-                args.dim,
-                args.n_heads * self.head_dim,
-                bias=False,
-            )
-            self.wo = nn.Linear(
-                args.n_heads * self.head_dim,
-                args.dim,
-                bias=False,
-            )
+        self.wq = make_linear(
+            args.dim,
+            args.n_heads * self.head_dim,
+            bias=False,
+            **linear_kwargs,
+        )
+        self.wv = make_linear(
+            args.dim,
+            args.n_heads * self.head_dim,
+            bias=False,
+            **linear_kwargs,
+        )
+        self.wk = make_linear(
+            args.dim,
+            args.n_heads * self.head_dim,
+            bias=False,
+            **linear_kwargs,
+        )
+        self.wo = make_linear(
+            args.n_heads * self.head_dim,
+            args.dim,
+            bias=False,
+            **linear_kwargs,
+        )
 
         self.use_cache = use_cache
         self.use_xformers = use_xformers
@@ -244,36 +208,26 @@ class FeedForward(nn.Module):
         multiple_of: int,
         use_checkpoint=False,
         use_checkpoint_activations=True,
-        lora=True,
-        lora_r=16,
+        linear_kwargs=None,
     ):
         super().__init__()
         hidden_dim = int(2 * hidden_dim / 3)
         hidden_dim = multiple_of * ((hidden_dim + multiple_of - 1) // multiple_of)
 
-        self.lora = lora
+        linear_kwargs = linear_kwargs or {}
 
-        if self.lora:
-            import loralib
-            self.w1 = loralib.Linear(
-                dim, hidden_dim, bias=False, r=lora_r
-            )
-            self.w2 = loralib.Linear(
-                hidden_dim, dim, bias=False, r=lora_r
-            )
-            self.w3 = loralib.Linear(
-                dim, hidden_dim, bias=False, r=lora_r
-            )
-        else:
-            self.w1 = nn.Linear(
-                dim, hidden_dim, bias=False,
-            )
-            self.w2 = nn.Linear(
-                hidden_dim, dim, bias=False, 
-            )
-            self.w3 = nn.Linear(
-                dim, hidden_dim, bias=False, 
-            )
+        self.w1 = make_linear(
+            dim, hidden_dim, bias=False,
+            **linear_kwargs,
+        )
+        self.w2 = make_linear(
+            hidden_dim, dim, bias=False, 
+            **linear_kwargs,
+        )
+        self.w3 = make_linear(
+            dim, hidden_dim, bias=False, 
+            **linear_kwargs,
+        )
 
         self.use_checkpoint = use_checkpoint
         self.use_checkpoint_activations = use_checkpoint_activations
@@ -303,17 +257,18 @@ class TransformerBlock(nn.Module):
         self.n_heads = args.n_heads
         self.dim = args.dim
         self.head_dim = args.dim // args.n_heads
-        self.attention = Attention(args, use_xformers=use_xformers, 
+        self.attention = Attention(args, 
+                                   use_xformers=use_xformers, 
                                    use_checkpoint=False,
                                    use_checkpoint_activations=use_checkpoint_activations,
                                    use_cache=use_cache,
-                                   lora=use_lora, lora_r=lora_r
+                                   linear_kwargs=linear_kwargs,
                                    )
         self.feed_forward = FeedForward(
             dim=args.dim, hidden_dim=4 * args.dim, multiple_of=args.multiple_of,
             use_checkpoint=False,
             use_checkpoint_activations=use_checkpoint_activations,
-            lora=use_lora, lora_r=lora_r
+            linear_kwargs=linear_kwargs,
         )
         self.layer_id = layer_id
         self.attention_norm = RMSNorm(args.dim, eps=args.norm_eps)
@@ -334,17 +289,22 @@ class TransformerBlock(nn.Module):
 
 
 class Transformer(nn.Module):
-    def __init__(self, params: ModelArgs, use_xformers: bool = True,
+    def __init__(self, params: ModelArgs, 
+                 use_xformers: bool = True,
+                 use_checkpoint=True,
                  n_checkpoint_segments=4,
                  freeze_layers_below_n=0,
                  quantize_frozen=True,
                  use_cache=False,
-                 use_lora=True, lora_r=16):
+                 use_lora=True, 
+                 lora_r=16):
         super().__init__()
         self.params = params
         self.vocab_size = params.vocab_size
         self.n_layers = params.n_layers
         self.freeze_layers_below_n = freeze_layers_below_n
+        self.use_checkpoint = use_checkpoint
+        self.n_checkpoint_segments = n_checkpoint_segments
 
         self.tok_embeddings = nn.Embedding(
             params.vocab_size, params.dim, 
@@ -352,22 +312,34 @@ class Transformer(nn.Module):
 
         self.layers = torch.nn.ModuleList()
         for layer_id in range(params.n_layers):
+            base_weights_frozen = use_lora or (
+                layer_id < self.freeze_layers_below_n)
+            
+            linear_kwargs = dict(
+                use_lora=use_lora and layer_id >= self.freeze_layers_below_n,
+                lora_r=lora_r,
+                use_8bit=quantize_frozen and base_weights_frozen,
+            )
             def make_layer(): return TransformerBlock(
                 layer_id, params,
                 use_xformers=use_xformers,
                 use_checkpoint=False,
                 use_checkpoint_activations=False,
                 use_cache=use_cache,
-                use_lora=use_lora and layer_id >= self.freeze_layers_below_n,
-                lora_r=lora_r
+                linear_kwargs=linear_kwargs,
             )
-            if quantize_frozen and (layer_id < self.freeze_layers_below_n) or use_lora:
-                make_layer = init_8bit(make_layer)
             self.layers.append(make_layer())
 
         self.norm = RMSNorm(params.dim, eps=params.norm_eps)
-        self.output = nn.Linear(
+        
+        linear_kwargs = dict(
+            use_lora=use_lora,
+            lora_r=lora_r,
+            use_8bit=quantize_frozen and use_lora,
+        )
+        self.output = make_linear(
             params.dim, params.vocab_size, bias=False, 
+            **linear_kwargs
         )
 
         self.freqs_cis = precompute_freqs_cis(
@@ -377,9 +349,9 @@ class Transformer(nn.Module):
 
         for layer in self.layers[:self.freeze_layers_below_n]:
             layer.requires_grad_(False)
+
         if self.freeze_layers_below_n > 0:
             self.tok_embeddings.requires_grad_(False)
-        self.n_checkpoint_segments = n_checkpoint_segments
 
     def forward(self, tokens: torch.Tensor, start_pos: int):
         _bsz, seqlen = tokens.shape
@@ -392,18 +364,21 @@ class Transformer(nn.Module):
             mask = torch.full((1, 1, seqlen, seqlen), float("-inf"), device=tokens.device)
             mask = torch.triu(mask, diagonal=start_pos + 1).type_as(h)
 
+        if self.use_checkpoint:
+            for layer in self.layers[:self.freeze_layers_below_n]:
+                h = layer(h, start_pos, freqs_cis, mask)
+            h.requires_grad_(True)
 
-        for layer in self.layers[:self.freeze_layers_below_n]:
-            h = layer(h, start_pos, freqs_cis, mask)
-        h.requires_grad_(True)
+            fwds = [partial(layer.forward, start_pos=start_pos, freqs_cis=freqs_cis, mask=mask)
+                    for layer in self.layers[self.freeze_layers_below_n:]]
 
-        fwds = [partial(layer.forward, start_pos=start_pos, freqs_cis=freqs_cis, mask=mask)
-                for layer in self.layers[self.freeze_layers_below_n:]]
-
-        h = checkpoint_sequential(
-            fwds, len(fwds)//self.n_checkpoint_segments,
-            h
-        )
+            h = checkpoint_sequential(
+                fwds, len(fwds)//self.n_checkpoint_segments,
+                h
+            )
+        else:
+            for layer in self.layers:
+                h = layer(h, start_pos, freqs_cis, mask)
 
         h = self.norm(h)
         output = self.output(h)
