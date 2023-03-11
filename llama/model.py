@@ -12,7 +12,7 @@ from torch import nn
 import torch.nn.functional as F
 from torch.utils.checkpoint import checkpoint, checkpoint_sequential
 
-from llama.util import make_linear
+from llama.util import make_linear, LoraWrapper
 
 
 def init_8bit(loading_code, **kwargs):
@@ -392,6 +392,6 @@ class Transformer(nn.Module):
 
     def merge_lora_into_base(self):
         def _merge_lora_into_base(mod):
-            if hasattr(mod, 'merge_lora_into_base'):
+            if isinstance(mod, LoraWrapper):
                 mod.merge_lora_into_base()
         self.apply(_merge_lora_into_base)
