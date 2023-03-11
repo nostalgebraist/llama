@@ -129,10 +129,13 @@ class Attention(nn.Module):
         self.use_checkpoint = use_checkpoint
         self.use_checkpoint_activations = use_checkpoint_activations
 
+        self.mask = None
         if self.use_xformers:
             import xformers.ops as xops
             self.xops = xops
-            self.mask = xops.LowerTriangularMask()
+            if not self.use_cache:
+                # use_cache means inference, so nothing should be masked in that case
+                self.mask = xops.LowerTriangularMask()
 
         if self.use_cache:
             self.cache_k = torch.zeros(
