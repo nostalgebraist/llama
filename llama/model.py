@@ -389,3 +389,9 @@ class Transformer(nn.Module):
         h = self.norm(h)
         output = self.output(h)
         return output.float()
+
+    def merge_lora_into_base(self):
+        def _merge_lora_into_base(mod):
+            if hasattr(mod, 'merge_lora_into_base'):
+                mod.merge_lora_into_base()
+        self.apply(_merge_lora_into_base)
