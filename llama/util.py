@@ -65,6 +65,17 @@ class LoraWrapper(Wrapper):
             nn.init.kaiming_uniform_(self.lora_A, a=math.sqrt(5))
             nn.init.zeros_(self.lora_B)
 
+    def merge_lora_into_base(self):
+        assert hasattr(self.child, 'weight')
+        assert self.child.weight.shape == (self.child.out_features, self.child.in_features)
+        
+        with th.no_grad():
+            patch = self.scaling * (self.lora_A @ self.lora_B).T
+            self.child.weight.data += patch
+            del self.lora_A
+            del self.lora_B
+            self.r = 0
+
     def _lora_down(self, x):
         return x.to(self.lora_A.dtype) @ self.lora_A
     
@@ -77,7 +88,6 @@ class LoraWrapper(Wrapper):
         else:
             out = self.child(x)
         if self.r > 0:
-            # delta = (self.scaling * x.to(self.lora_A.dtype) @ self.lora_A @ self.lora_B).to(out.dtype)
             if self.use_checkpoint:
                 y = self._lora_down(x)
                 delta = checkpoint(self._lora_up, y).to(out.dtype)
