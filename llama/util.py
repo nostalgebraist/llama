@@ -66,6 +66,9 @@ class LoraWrapper(Wrapper):
             nn.init.zeros_(self.lora_B)
 
     def merge_lora_into_base(self):
+        if self.r <= 0:
+            return 
+
         assert hasattr(self.child, 'weight')
         assert self.child.weight.shape == (self.child.out_features, self.child.in_features)
         
