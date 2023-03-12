@@ -379,7 +379,7 @@ class Transformer(nn.Module):
                     for layer in self.layers[self.freeze_layers_below_n:]]
 
             h = checkpoint_sequential(
-                fwds, len(fwds)//self.n_checkpoint_segments,
+                fwds, self.n_checkpoint_segments,
                 h
             )
         else:
