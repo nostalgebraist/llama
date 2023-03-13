@@ -111,10 +111,15 @@ def make_linear(
     bnb_kwargs=None,
     bnb_has_fp16_weights=False,
     bnb_force_no_igemmlt=False,
+    device=None,
 ):
     lora_kwargs = lora_kwargs or {}
     bnb_kwargs = bnb_kwargs or {}
     bnb_kwargs['has_fp16_weights'] = bnb_has_fp16_weights
+
+    linear_kwargs = dict()
+    if device:
+        linear_kwargs['device'] = device
 
     if use_lora:
         assert 'r' in lora_kwargs
@@ -128,7 +133,7 @@ def make_linear(
         if bnb_force_no_igemmlt:
             base.state.force_no_igemmlt = True
     else:
-        base = nn.Linear(in_features, out_features, bias)
+        base = nn.Linear(in_features, out_features, bias, **linear_kwargs)
 
     if use_lora:
         return LoraWrapper(child=base, **lora_kwargs)

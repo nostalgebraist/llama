@@ -301,7 +301,8 @@ class Transformer(nn.Module):
                  use_cache=False,
                  use_lora=True, 
                  use_lora_checkpoint=False,
-                 lora_r=16):
+                 lora_r=16,
+                 linear_device=None,):
         super().__init__()
         self.params = params
         self.vocab_size = params.vocab_size
@@ -324,6 +325,7 @@ class Transformer(nn.Module):
                 lora_kwargs=dict(r=lora_r, use_checkpoint=use_lora_checkpoint),
                 use_8bit=quantize_frozen and base_weights_frozen,
                 bnb_kwargs=dict(threshold=quantize_threshold),
+                device=linear_device,
             )
             def make_layer(): return TransformerBlock(
                 layer_id, params,
