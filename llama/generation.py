@@ -2,6 +2,7 @@
 # This software may be used and distributed according to the terms of the GNU General Public License version 3.
 
 from typing import List
+from functools import partial
 
 import torch
 from tqdm.auto import tqdm, trange
@@ -34,6 +35,7 @@ class LLaMA:
         breakruns=True,
         breakruns_tau=0.035,
         debug=False,
+        progress_bar=True,
     ) -> List[str]:
         bsz = len(prompts)
         params = self.model.params
@@ -61,7 +63,9 @@ class LLaMA:
                                         debug=debug)
             temperature = 1.0
 
-        for cur_pos in trange(start_pos, total_len, mininterval=0.25):
+        ranger = partial(trange, mininterval=0.25) if progress_bar else range
+
+        for cur_pos in ranger(start_pos, total_len):
             if allow_xformers and cur_pos - prev_pos > 1:
                 self.model.apply(xformers_on);
             else:
