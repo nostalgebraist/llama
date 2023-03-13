@@ -36,6 +36,7 @@ class LLaMA:
         breakruns_tau=0.035,
         debug=False,
         progress_bar=True,
+        return_stop_reason=False,
     ) -> List[str]:
         bsz = len(prompts)
         params = self.model.params
@@ -56,6 +57,7 @@ class LLaMA:
         prev_pos = 0
 
         lp = None
+        stop_reason = None
         if breakruns:
             lp = BreakrunsLogitsProcessor(base_temperature=temperature, 
                                         tau=breakruns_tau, 
@@ -89,7 +91,10 @@ class LLaMA:
             tokens[:, cur_pos] = next_token
             prev_pos = cur_pos
             if stop_at_eos and bsz == 1 and (next_token == self.tokenizer.eos_id):
+                stop_reason = 'eos'
                 break
+        
+        stop_reason = 'max_length'
 
         decoded = []
         if breakruns:
@@ -114,6 +119,9 @@ class LLaMA:
             except Exception as e:
                 display(e)
                 return t
+        
+        if return_stop_reason:
+            return decoded, stop_reason
         return decoded
 
 
