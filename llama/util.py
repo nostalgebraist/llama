@@ -23,7 +23,6 @@ class Wrapper(nn.Module):
 
         def hook(k, v):
             if k in self._store['child']._parameters:
-                print(f"child {k}")
                 self._store['child']._parameters[k] = v
 
         self.__dict__['_parameters'].hook = hook
@@ -90,7 +89,7 @@ class LoraWrapper(Wrapper):
         
         with th.no_grad():
             patch = self.scaling * (self.lora_A @ self.lora_B).T
-            self.child.weight.data += patch
+            self.child.weight.data += patch.to(device=self.child.weight.data.device)
             del self.lora_A
             del self.lora_B
             self.r = 0
