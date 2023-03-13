@@ -9,6 +9,7 @@ import bitsandbytes as bnb
 
 
 class Wrapper(nn.Module):
+    """TODO: __getattr__ and __setattr__ for self._parameters to ensure child gets updated properly in load_state_dict, to, etc."""
     def __init__(self, child: nn.Module):
         super().__init__()
         self._store = {'child': child}
