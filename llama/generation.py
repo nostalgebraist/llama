@@ -34,15 +34,21 @@ class LLaMA:
         allow_xformers=False,
         breakruns=True,
         breakruns_tau=0.035,
+        print_breakruns_stats=False,
         debug=False,
         progress_bar=True,
         return_stop_reason=False,
+        decode=True,
     ) -> List[str]:
         bsz = len(prompts)
         params = self.model.params
         assert bsz <= params.max_batch_size, (bsz, params.max_batch_size)
 
-        prompt_tokens = [self.tokenizer.encode(x, bos=True, eos=False) for x in prompts]
+        if isinstance(prompts[0], str):
+            prompt_tokens = [self.tokenizer.encode(x, bos=True, eos=False) for x in prompts]
+        else:
+            # pre encoded
+            prompt_tokens = prompts
 
         min_prompt_size = min([len(t) for t in prompt_tokens])
         max_prompt_size = max([len(t) for t in prompt_tokens])
@@ -96,8 +102,8 @@ class LLaMA:
         
         stop_reason = 'max_length'
 
-        decoded = []
-        if breakruns:
+        output = []
+        if breakruns and print_breakruns_stats:
             temp_avg = lp.temp_avg.item() if len(lp.temp_avg) == 1 else lp.temp_avg.cpu().numpy()
             print(f"temp_avg: {temp_avg}")
             if lp.tau > 0:
@@ -114,15 +120,19 @@ class LLaMA:
                 t = t[: t.index(-1)]
             except ValueError:
                 pass
-            try:
-                decoded.append(self.tokenizer.decode(t))
-            except Exception as e:
-                display(e)
-                return t
+
+            if decode:
+                try:
+                    output.append(self.tokenizer.decode(t))
+                except Exception as e:
+                    print(repr(e))
+                    return t
+            else:
+                output.append(t)
         
         if return_stop_reason:
-            return decoded, stop_reason
-        return decoded
+            return output, stop_reason
+        return output
 
 
 
