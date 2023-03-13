@@ -100,7 +100,8 @@ class LLaMA:
                 stop_reason = 'eos'
                 break
         
-        stop_reason = 'max_length'
+        if stop_reason is None:
+            stop_reason = 'max_length'
 
         output = []
         if breakruns and print_breakruns_stats:
