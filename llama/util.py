@@ -8,20 +8,30 @@ from torch.utils.checkpoint import checkpoint
 import bitsandbytes as bnb
 
 
+class HookedDict(dict):
+    def __setitem__(self, k, v):
+        super().__setitem__(k, v)
+        if hasattr(self, 'hook'):
+            self.hook(k, v)
+
+
 class Wrapper(nn.Module):
-    """
-    TODO: __getattr__ and __setattr__ for self._parameters to ensure child gets updated properly in load_state_dict, to, etc.
-          Or, ensure .data is bound properly (?)
-    
-    WIP of this on branch lora-bnb-unify-dev
-    """
     def __init__(self, child: nn.Module):
-        super().__init__()
+        super(llama.util.Wrapper, self).__init__()
+        self.__dict__['_parameters'] = HookedDict()
         self._store = {'child': child}
+
+        def hook(k, v):
+            if k in self._store['child']._parameters:
+                print(f"child {k}")
+                self._store['child']._parameters[k] = v
+
+        self.__dict__['_parameters'].hook = hook
 
         for n, p in child.named_parameters():
             self.register_parameter(n, p)
 
+        # TODO: hook buffers
         for n, p in child._buffers.items():
             self.register_buffer(
                 n, p, persistent=n not in child._non_persistent_buffers_set)
