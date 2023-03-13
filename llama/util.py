@@ -17,7 +17,7 @@ class HookedDict(dict):
 
 class Wrapper(nn.Module):
     def __init__(self, child: nn.Module):
-        super(llama.util.Wrapper, self).__init__()
+        super().__init__()
         self.__dict__['_parameters'] = HookedDict()
         self._store = {'child': child}
 
