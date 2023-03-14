@@ -24,6 +24,11 @@ class LLaMA:
         self.model = model
         self.tokenizer = tokenizer
 
+        self.tokens = torch.full(
+            (self.model.params.max_batch_size, self.model.params.max_seq_len),
+            self.tokenizer.pad_id
+        ).cuda().long()
+
     def generate(
         self,
         prompts: List[str],
@@ -55,10 +60,13 @@ class LLaMA:
 
         total_len = min(params.max_seq_len, max_gen_len + max_prompt_size)
 
-        tokens = torch.full((bsz, total_len), self.tokenizer.pad_id).cuda().long()
+        # tokens = torch.full((bsz, total_len), self.tokenizer.pad_id).cuda().long()
+        self.tokens[:] = self.tokenizer.pad_id
+
         for k, t in enumerate(prompt_tokens):
-            tokens[k, : len(t)] = torch.tensor(t).long()
-        input_text_mask = tokens != self.tokenizer.pad_id
+            self.tokens[k, : len(t)] = torch.tensor(t).long()
+        
+        input_text_mask = self.tokens != self.tokenizer.pad_id
         start_pos = min_prompt_size
         prev_pos = 0
 
@@ -79,10 +87,10 @@ class LLaMA:
             else:
                 self.model.apply(xformers_off);
 
-            logits = self.model.forward(tokens[:, prev_pos:cur_pos], prev_pos)[:, -1, :]
+            logits = self.model.forward(self.tokens[:, prev_pos:cur_pos], prev_pos)[:, -1, :]
 
             if lp is not None:
-                logits = lp(tokens[:, start_pos:cur_pos], logits)
+                logits = lp(self.tokens[:, start_pos:cur_pos], logits)
 
             if temperature > 0:
                 probs = torch.softmax(logits / temperature, dim=-1)
@@ -92,9 +100,9 @@ class LLaMA:
             next_token = next_token.reshape(-1)
             # only replace token if prompt has already been generated
             next_token = torch.where(
-                input_text_mask[:, cur_pos], tokens[:, cur_pos], next_token
+                input_text_mask[:, cur_pos], self.tokens[:, cur_pos], next_token
             )
-            tokens[:, cur_pos] = next_token
+            self.tokens[:, cur_pos] = next_token
             prev_pos = cur_pos
             if stop_at_eos and bsz == 1 and (next_token == self.tokenizer.eos_id):
                 stop_reason = 'eos'
@@ -114,7 +122,7 @@ class LLaMA:
             max_run_len = lp.max_run_len.item() if len(lp.max_run_len) == 1 else lp.max_run_len.cpu().numpy()
             print(f"max_run_len: {max_run_len}")
 
-        for i, t in enumerate(tokens.tolist()):
+        for i, t in enumerate(self.tokens.tolist()):
             # cut to max gen len
             t = t[: len(prompt_tokens[i]) + max_gen_len]
             try:
