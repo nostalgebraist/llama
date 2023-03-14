@@ -1,6 +1,11 @@
 import torch
 
 class BreakrunsLogitsProcessor:
+    """
+    This is a sampling trick I use to avoid "pathological repetition" in autoregressive LM sampling.
+
+    Description at https://nostalgebraist.tumblr.com/post/648042918390759424/breakruns
+    """
     def __init__(self,
                 base_temperature: float,
                 tau: float,
