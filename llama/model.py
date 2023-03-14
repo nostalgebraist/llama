@@ -255,7 +255,7 @@ class TransformerBlock(nn.Module):
     def __init__(self, layer_id: int, args: ModelArgs, use_xformers=True, use_checkpoint=False, use_checkpoint_activations=True,
                  use_cache=False, 
                  linear_kwargs=None,
-                 fp32_logits=True,):
+                 ):
         super().__init__()
         self.n_heads = args.n_heads
         self.dim = args.dim
@@ -278,7 +278,6 @@ class TransformerBlock(nn.Module):
         self.ffn_norm = RMSNorm(args.dim, eps=args.norm_eps)
         
         self.use_checkpoint = use_checkpoint
-        self.fp32_logits = fp32_logits
 
     def forward(self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor]):
         if self.use_checkpoint:
@@ -304,7 +303,8 @@ class Transformer(nn.Module):
                  use_lora=True, 
                  use_lora_checkpoint=False,
                  lora_r=16,
-                 linear_device=None,):
+                 linear_device=None,
+                 fp32_logits=True,):
         super().__init__()
         self.params = params
         self.vocab_size = params.vocab_size
@@ -312,6 +312,7 @@ class Transformer(nn.Module):
         self.freeze_layers_below_n = freeze_layers_below_n
         self.use_checkpoint = use_checkpoint
         self.n_checkpoint_segments = n_checkpoint_segments
+        self.fp32_logits = fp32_logits
 
         self.tok_embeddings = nn.Embedding(
             params.vocab_size, params.dim, 
