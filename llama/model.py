@@ -254,7 +254,8 @@ class FeedForward(nn.Module):
 class TransformerBlock(nn.Module):
     def __init__(self, layer_id: int, args: ModelArgs, use_xformers=True, use_checkpoint=False, use_checkpoint_activations=True,
                  use_cache=False, 
-                 linear_kwargs=None):
+                 linear_kwargs=None,
+                 fp32_logits=True,):
         super().__init__()
         self.n_heads = args.n_heads
         self.dim = args.dim
@@ -277,6 +278,7 @@ class TransformerBlock(nn.Module):
         self.ffn_norm = RMSNorm(args.dim, eps=args.norm_eps)
         
         self.use_checkpoint = use_checkpoint
+        self.fp32_logits = fp32_logits
 
     def forward(self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor]):
         if self.use_checkpoint:
@@ -390,7 +392,11 @@ class Transformer(nn.Module):
 
         h = self.norm(h)
         output = self.output(h)
-        return output.float()
+
+        if self.fp32_logits:
+            return output.float()
+        
+        return output
 
     def merge_lora_into_base(self):
         def _merge_lora_into_base(mod):
