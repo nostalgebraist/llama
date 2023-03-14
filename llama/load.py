@@ -40,7 +40,8 @@ def load_state_dict_meta(module, sd, device, delete_after=True):
 
 toggle = {0: 0}
 
-def load(ckpt_dir: str, tokenizer_path: str, local_rank: int, world_size: int, n_ctx, ckpt_path=None, use_cache=False, use_xformers=True, 
+def load(ckpt_dir: str, tokenizer_path: str, local_rank: int, world_size: int, n_ctx, ckpt_path=None, use_cache=False,
+         use_xformers=True, 
          freeze_layers_below_n=0,
          use_lora=True,
          lora_r=16,
@@ -52,6 +53,7 @@ def load(ckpt_dir: str, tokenizer_path: str, local_rank: int, world_size: int, n
          max_batch_size=1,
          lowmem=False,
          lowmem_cpu_ratio=1,
+         fp32_logits=True,
          ) -> LLaMA:
     start_time = time.time()
 
@@ -94,6 +96,7 @@ def load(ckpt_dir: str, tokenizer_path: str, local_rank: int, world_size: int, n
                         use_checkpoint=use_checkpoint,
                         n_checkpoint_segments=n_checkpoint_segments,
                         linear_device='meta' if lowmem else None,
+                        fp32_logits=fp32_logits,
                         )
     torch.set_default_tensor_type(torch.FloatTensor)
 
