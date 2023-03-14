@@ -89,7 +89,10 @@ class LoraWrapper(Wrapper):
         
         with th.no_grad():
             patch = self.scaling * (self.lora_A @ self.lora_B).T
-            self.child.weight.data += patch.to(device=self.child.weight.data.device)
+            self.child.weight.data = (
+                self.child.weight.data.to(dtype=patch.dtype, device=patch.device) + 
+                patch
+            ).to(dtype=self.child.weight.data.dtype, device=self.child.weight.data.device)
             del self.lora_A
             del self.lora_B
             self.r = 0
