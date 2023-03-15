@@ -304,7 +304,8 @@ class Transformer(nn.Module):
                  use_lora_checkpoint=False,
                  lora_r=16,
                  linear_device=None,
-                 fp32_logits=True,):
+                 fp32_logits=True,
+                 allow_quantize_unembed=True,):
         super().__init__()
         self.params = params
         self.vocab_size = params.vocab_size
@@ -345,7 +346,7 @@ class Transformer(nn.Module):
         linear_kwargs = dict(
             use_lora=use_lora,
             lora_kwargs=dict(r=lora_r, use_checkpoint=use_lora_checkpoint),
-            use_8bit=quantize_frozen and use_lora,
+            use_8bit=quantize_frozen and use_lora and allow_quantize_unembed,
             bnb_kwargs=dict(threshold=quantize_threshold),
         )
         self.output = make_linear(
