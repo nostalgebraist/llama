@@ -37,6 +37,7 @@ class LLaMA:
         top_p: float = 0.95,
         stop_at_eos=True,
         allow_xformers=False,
+        all_xformers=False,
         breakruns=True,
         breakruns_tau=0.035,
         print_breakruns_stats=False,
@@ -84,7 +85,7 @@ class LLaMA:
         ranger = partial(trange, mininterval=0.25) if progress_bar else range
 
         for cur_pos in ranger(start_pos, total_len):
-            if allow_xformers and cur_pos - prev_pos > 1:
+            if allow_xformers and (all_xformers or (cur_pos - prev_pos > 1)):
                 self.model.apply(xformers_on);
             else:
                 self.model.apply(xformers_off);
