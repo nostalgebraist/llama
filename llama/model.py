@@ -133,7 +133,7 @@ class Attention(nn.Module):
         if self.use_xformers:
             import xformers.ops as xops
             self.xops = xops
-            self.mask = None if self.use_cache else xops.LowerTriangularMask()
+            self.mask = xops.LowerTriangularMask()
 
         if self.use_cache:
             self.cache_k = torch.zeros(
@@ -178,7 +178,7 @@ class Attention(nn.Module):
 
         if self.use_xformers:
             output = self.xops.memory_efficient_attention(
-                xq, keys, values, attn_bias=self.mask
+                xq, keys, values, attn_bias=self.mask if seqlen > 1 else None
             )
         else:
             xq = xq.transpose(1, 2)
