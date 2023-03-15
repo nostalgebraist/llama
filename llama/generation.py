@@ -44,6 +44,7 @@ class LLaMA:
         progress_bar=True,
         return_stop_reason=False,
         decode=True,
+        extra_logits_processors=None,
     ) -> List[str]:
         bsz = len(prompts)
         params = self.model.params
@@ -72,6 +73,7 @@ class LLaMA:
 
         lp = None
         stop_reason = None
+        extra_lp = extra_logits_processors or []
         if breakruns:
             lp = BreakrunsLogitsProcessor(base_temperature=temperature, 
                                         tau=breakruns_tau, 
@@ -91,6 +93,9 @@ class LLaMA:
 
             if lp is not None:
                 logits = lp(self.tokens[:, start_pos:cur_pos], logits)
+
+            for elp in extra_lp:
+                logits = elp(self.tokens[:, start_pos:cur_pos], logits)
 
             if temperature > 0:
                 probs = torch.softmax(logits / temperature, dim=-1)
