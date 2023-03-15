@@ -133,7 +133,7 @@ class Attention(nn.Module):
         if self.use_xformers:
             import xformers.ops as xops
             self.xops = xops
-            self.mask = xops.LowerTriangularMask()
+            self.mask = None if self.use_cache else xops.LowerTriangularMask()
 
         if self.use_cache:
             self.cache_k = torch.zeros(
