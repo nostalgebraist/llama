@@ -142,8 +142,11 @@ class Attention(nn.Module):
                            self.n_local_heads, self.head_dim)
             if quantize_cache:
                 assert args.max_batch_size == 1
-                cache_shape = (args.max_seq_len,
-                               self.n_local_heads, self.head_dim)
+                cache_shape = (
+                    self.n_local_heads,
+                    self.head_dim,
+                    args.max_seq_len,
+                )
                 self.SCB_shape = (cache_shape[0], cache_shape[1], 1)
                 self.SCB_shape_dyn = (-1, cache_shape[1], 1)
                 self.SCB_k = torch.zeros(self.SCB_shape, device='cuda')
@@ -177,29 +180,53 @@ class Attention(nn.Module):
 
         if self.use_cache:
             if self.quantize_cache:
-                xkc = xk.view(seqlen, self.n_local_heads, self.head_dim)
-                xvc = xv.view(seqlen, self.n_local_heads, self.head_dim)
-                
-                CB, _, SCB, _, _ = bnb.functional.double_quant(xkc)
-                SCB_shaped = SCB.view(*self.SCB_shape_dyn)
+                xkc = xk.view(seqlen, self.n_local_heads, self.head_dim).permute(
+                    (1, 2, 0)).reshape(-1, seqlen)
+                xvc = xv.view(seqlen, self.n_local_heads, self.head_dim).permute(
+                    (1, 2, 0)).reshape(-1, seqlen)
 
-                self.cache_k[start_pos: start_pos + seqlen] = CB
-                self.SCB_k[start_pos: start_pos + seqlen] = SCB_shaped
+                if start_pos > 0:
+                    xq_k_cache = self.cache_k[:, :, : start_pos]
+                    xq_k_cache = xq_k_cache.reshape(-1, start_pos)
+                    max1_k_cache = self.SCB_k.view(-1, 1)
 
-                CB_cache = self.cache_k[: start_pos + seqlen]
-                SCB_cache_shaped = self.SCB_k[: start_pos + seqlen].view(*self.SCB_shape_dyn)
-                keys = (SCB_cache_shaped * CB_cache) / 127.
+                    pastk = bnb.functional.vectorwise_dequant(
+                        xq_k_cache, max1_k_cache,).half()
 
-                CB, _, SCB, _, _ = bnb.functional.double_quant(xvc)
-                SCB_shaped = SCB.view(*self.SCB_shape_dyn)
+                    keys = torch.cat([pastk, xkc], dim=-1)
+                else:
+                    keys = xkc
 
-                self.cache_v[start_pos: start_pos + seqlen] = CB
-                self.SCB_v[start_pos: start_pos + seqlen] = SCB_shaped
+                xq_k, max1 = bnb.functional.vectorwise_quant(keys, dim=1)
 
-                CB_cache = self.cache_v[: start_pos + seqlen]
-                SCB_cache_shaped = self.SCB_v[start_pos: start_pos +
-                                              seqlen].view(*self.SCB_shape_dyn)
-                values = (SCB_cache_shaped * CB_cache) / 127.
+                keys = keys.reshape(
+                    self.n_local_heads, self.head_dim, -1).permute((2, 0, 1))[None, :].contiguous()
+
+                cache_scatter = xq_k.reshape(self.n_local_heads, self.head_dim, -1)
+
+                self.cache_k[:, :, : start_pos + seqlen] = cache_scatter
+
+                self.SCB_k[:] = max1.view(*self.SCB_shape_dyn)
+
+                if start_pos > 0:
+                    xq_v_cache = self.cache_v[:, :, : start_pos]
+                    xq_v_cache = xq_v_cache.reshape(-1, start_pos)
+                    max1_v_cache = self.SCB_v.view(-1, 1)
+
+                    pastv = bnb.functional.vectorwise_dequant(
+                        xq_v_cache, max1_v_cache,).half()
+                    values = torch.cat([pastv, xvc], dim=1)
+                else:
+                    values = xvc
+
+                xq_v, max1 = bnb.functional.vectorwise_quant(values, dim=1)
+
+                values = values.reshape(
+                    self.n_local_heads, self.head_dim, -1).permute((2, 0, 1))[None, :].contiguous()
+
+                cache_scatter = xq_v.reshape(self.n_local_heads, self.head_dim, -1)
+                self.cache_v[:, :, : start_pos + seqlen] = cache_scatter
+                self.SCB_v[:] = max1.view(*self.SCB_shape_dyn)
             else:
                 self.cache_k = self.cache_k.to(xq)
                 self.cache_v = self.cache_v.to(xq)
@@ -238,7 +265,6 @@ class Attention(nn.Module):
         output = output.view(bsz, seqlen, -1)
 
         return self.wo(output)
-
 
 class FeedForward(nn.Module):
     def __init__(
