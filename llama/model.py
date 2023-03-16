@@ -373,7 +373,8 @@ class Transformer(nn.Module):
                  linear_device=None,
                  fp32_logits=True,
                  allow_quantize_unembed=True,
-                 quantize_cache=False,):
+                 quantize_cache=False,
+                 quantize_cache_above=0,):
         super().__init__()
         self.params = params
         self.vocab_size = params.vocab_size
@@ -405,7 +406,7 @@ class Transformer(nn.Module):
                 use_checkpoint=False,
                 use_checkpoint_activations=False,
                 use_cache=use_cache,
-                quantize_cache=quantize_cache,
+                quantize_cache=quantize_cache and layer_id >= quantize_cache_above,
                 linear_kwargs=linear_kwargs,
             )
             self.layers.append(make_layer())
