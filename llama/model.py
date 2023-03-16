@@ -146,8 +146,8 @@ class Attention(nn.Module):
                                self.n_local_heads, self.head_dim)
                 self.SCB_shape = (cache_shape[0], cache_shape[1], 1)
                 self.SCB_shape_dyn = (-1, cache_shape[1], 1)
-                self.SCB_k = torch.zeros(self.SCB_shape)
-                self.SCB_v = torch.zeros(self.SCB_shape)
+                self.SCB_k = torch.zeros(self.SCB_shape, device='cuda')
+                self.SCB_v = torch.zeros(self.SCB_shape, device='cuda')
             self.cache_k = torch.zeros(
                 cache_shape,
                 dtype=torch.int8 if quantize_cache else self.wk.weight.dtype,
@@ -186,8 +186,9 @@ class Attention(nn.Module):
                 self.cache_k[start_pos: start_pos + seqlen] = CB
                 self.SCB_k[start_pos: start_pos + seqlen] = SCB_shaped
 
-                SCB_cache_shaped = self.SCB_k[start_pos: start_pos + seqlen].view(*self.SCB_shape_dyn)
-                keys = (SCB_shaped * SCB_cache_shaped) / 127.
+                CB_cache = self.cache_k[: start_pos + seqlen]
+                SCB_cache_shaped = self.SCB_k[: start_pos + seqlen].view(*self.SCB_shape_dyn)
+                keys = (SCB_cache_shaped * CB_cache) / 127.
 
                 CB, _, SCB, _, _ = bnb.functional.double_quant(xvc)
                 SCB_shaped = SCB.view(*self.SCB_shape_dyn)
@@ -195,9 +196,10 @@ class Attention(nn.Module):
                 self.cache_v[start_pos: start_pos + seqlen] = CB
                 self.SCB_v[start_pos: start_pos + seqlen] = SCB_shaped
 
+                CB_cache = self.cache_v[: start_pos + seqlen]
                 SCB_cache_shaped = self.SCB_v[start_pos: start_pos +
                                               seqlen].view(*self.SCB_shape_dyn)
-                values = (SCB_shaped * SCB_cache_shaped) / 127.
+                values = (SCB_cache_shaped * CB_cache) / 127.
             else:
                 self.cache_k = self.cache_k.to(xq)
                 self.cache_v = self.cache_v.to(xq)
