@@ -292,6 +292,7 @@ class TransformerBlock(nn.Module):
     def __init__(self, layer_id: int, args: ModelArgs, use_xformers=True, use_checkpoint=False, use_checkpoint_activations=True,
                  use_cache=False, 
                  linear_kwargs=None,
+                 quantize_cache=False,
                  ):
         super().__init__()
         self.n_heads = args.n_heads
@@ -303,6 +304,7 @@ class TransformerBlock(nn.Module):
                                    use_checkpoint_activations=use_checkpoint_activations,
                                    use_cache=use_cache,
                                    linear_kwargs=linear_kwargs,
+                                   quantize_cache=quantize_cache,
                                    )
         self.feed_forward = FeedForward(
             dim=args.dim, hidden_dim=4 * args.dim, multiple_of=args.multiple_of,
@@ -342,7 +344,8 @@ class Transformer(nn.Module):
                  lora_r=16,
                  linear_device=None,
                  fp32_logits=True,
-                 allow_quantize_unembed=True,):
+                 allow_quantize_unembed=True,
+                 quantize_cache=False,):
         super().__init__()
         self.params = params
         self.vocab_size = params.vocab_size
@@ -374,6 +377,7 @@ class Transformer(nn.Module):
                 use_checkpoint=False,
                 use_checkpoint_activations=False,
                 use_cache=use_cache,
+                quantize_cache=quantize_cache,
                 linear_kwargs=linear_kwargs,
             )
             self.layers.append(make_layer())
