@@ -91,6 +91,7 @@ class Attention(nn.Module):
                  use_checkpoint=False,
                  use_checkpoint_activations=True,
                  linear_kwargs=None,
+                 quantize_cache=False,
                  ):
         super().__init__()
 
@@ -128,6 +129,7 @@ class Attention(nn.Module):
         self.use_xformers = use_xformers
         self.use_checkpoint = use_checkpoint
         self.use_checkpoint_activations = use_checkpoint_activations
+        self.quantize_cache = quantize_cache
 
         self.mask = None
         if self.use_xformers:
@@ -136,13 +138,23 @@ class Attention(nn.Module):
             self.mask = xops.LowerTriangularMask()
 
         if self.use_cache:
+            cache_shape = (args.max_batch_size, args.max_seq_len,
+                           self.n_local_heads, self.head_dim)
+            if quantize_cache:
+                assert args.max_batch_size == 1
+                cache_shape = (args.max_seq_len,
+                               self.n_local_heads, self.head_dim)
+                self.SCB_shape = (cache_shape[0], cache_shape[1], 1)
+                self.SCB_shape_dyn = (-1, cache_shape[1], 1)
+                self.SCB_k = torch.zeros(self.SCB_shape)
+                self.SCB_v = torch.zeros(self.SCB_shape)
             self.cache_k = torch.zeros(
-                (args.max_batch_size, args.max_seq_len, self.n_local_heads, self.head_dim),
-                dtype=self.wk.weight.dtype,
+                cache_shape,
+                dtype=torch.int8 if quantize_cache else self.wk.weight.dtype,
             ).cuda()
             self.cache_v = torch.zeros(
-                (args.max_batch_size, args.max_seq_len, self.n_local_heads, self.head_dim),
-                dtype=self.wv.weight.dtype,
+                cache_shape,
+                dtype=torch.int8 if quantize_cache else self.wv.weight.dtype,
             ).cuda()
 
     def forward(self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor]):
@@ -164,14 +176,37 @@ class Attention(nn.Module):
             xq, xk = apply_rotary_emb(xq, xk, freqs_cis=freqs_cis)
 
         if self.use_cache:
-            self.cache_k = self.cache_k.to(xq)
-            self.cache_v = self.cache_v.to(xq)
+            if self.quantize_cache:
+                xkc = xk.view(seqlen, self.n_local_heads, self.head_dim)
+                xvc = xv.view(seqlen, self.n_local_heads, self.head_dim)
+                
+                CB, _, SCB, _, _ = bnb.functional.double_quant(xkc)
+                SCB_shaped = SCB.view(*self.SCB_shape_dyn)
 
-            self.cache_k[:bsz, start_pos: start_pos + seqlen] = xk
-            self.cache_v[:bsz, start_pos: start_pos + seqlen] = xv
+                self.cache_k[start_pos: start_pos + seqlen] = CB
+                self.SCB_k[start_pos: start_pos + seqlen] = SCB_shaped
 
-            keys = self.cache_k[:bsz, : start_pos + seqlen]
-            values = self.cache_v[:bsz, : start_pos + seqlen]
+                SCB_cache_shaped = self.SCB_k[start_pos: start_pos + seqlen].view(*self.SCB_shape_dyn)
+                keys = (SCB_shaped * SCB_cache_shaped) / 127.
+
+                CB, _, SCB, _, _ = bnb.functional.double_quant(xvc)
+                SCB_shaped = SCB.view(*self.SCB_shape_dyn)
+
+                self.cache_v[start_pos: start_pos + seqlen] = CB
+                self.SCB_v[start_pos: start_pos + seqlen] = SCB_shaped
+
+                SCB_cache_shaped = self.SCB_v[start_pos: start_pos +
+                                              seqlen].view(*self.SCB_shape_dyn)
+                values = (SCB_shaped * SCB_cache_shaped) / 127.
+            else:
+                self.cache_k = self.cache_k.to(xq)
+                self.cache_v = self.cache_v.to(xq)
+
+                self.cache_k[:bsz, start_pos: start_pos + seqlen] = xk
+                self.cache_v[:bsz, start_pos: start_pos + seqlen] = xv
+
+                keys = self.cache_k[:bsz, : start_pos + seqlen]
+                values = self.cache_v[:bsz, : start_pos + seqlen]
         else:
             keys = xk
             values = xv
