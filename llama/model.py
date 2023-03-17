@@ -220,10 +220,13 @@ class Attention(nn.Module):
 
         using_int8_cache = False
         transfer_to_int8_cache = False
+        using_both_caches = False
+        start_pos_int8 = start_pos - self.quantize_cache_after_token
 
         if self.use_cache and self.quantize_cache:
             using_int8_cache = start_pos > self.quantize_cache_after_token
-            transfer_to_int8_cache = (not using_int8_cache) and start_pos + seqlen > self.quantize_cache_after_token
+            # transfer_to_int8_cache = (not using_int8_cache) and start_pos + seqlen > self.quantize_cache_after_token
+            using_both_caches = using_int8_cache and self.quantize_cache_after_token > 0
 
         if self.use_cache:
             if using_int8_cache:
@@ -233,46 +236,74 @@ class Attention(nn.Module):
                     (1, 2, 0)).reshape(-1, seqlen)
 
                 if start_pos > 0:
-                    xq_k_cache = self.cache_k_int8[:, :, : start_pos]
-                    xq_k_cache = xq_k_cache.reshape(-1, start_pos)
+                    xq_k_cache = self.cache_k_int8[:, :, : start_pos_int8]
+                    xq_k_cache = xq_k_cache.reshape(-1, start_pos_int8)
                     max1_k_cache = self.SCB_k.view(-1, 1)
 
                     pastk = bnb.functional.vectorwise_dequant(
                         xq_k_cache, max1_k_cache,).half()
 
+                    if using_both_caches:
+                        xq_k_cache_fp16 = self.cache_k_fp16[0:self.quantize_cache_after_token]
+
+                        xq_k_cache_fp16 = xq_k_cache_fp16.view(
+                            self.quantize_cache_after_token, self.n_local_heads, self.head_dim
+                        ).permute((1, 2, 0)).reshape(-1, self.quantize_cache_after_token)
+
+                        xq_k_cache_fp16 = xq_k_cache_fp16.reshape(-1, self.quantize_cache_after_token)
+
+                        pastk = torch.cat([xq_k_cache_fp16, pastk], dim=-1)
+
                     keys = torch.cat([pastk, xkc], dim=-1)
                 else:
                     keys = xkc
 
-                xq_k, max1 = bnb.functional.vectorwise_quant(keys, dim=1)
+                xq_k, max1 = bnb.functional.vectorwise_quant(
+                    keys[:, self.quantize_cache_after_token:], dim=1)
 
                 keys = keys.reshape(
                     self.n_local_heads, self.head_dim, -1).permute((2, 0, 1))[None, :].contiguous()
 
                 cache_scatter = xq_k.reshape(self.n_local_heads, self.head_dim, -1)
 
-                self.cache_k_int8[:, :, : start_pos + seqlen] = cache_scatter
+                self.cache_k_int8[:, :, : start_pos_int8 + seqlen] = cache_scatter
 
                 self.SCB_k[:] = max1.view(*self.SCB_shape_dyn)
 
                 if start_pos > 0:
-                    xq_v_cache = self.cache_v_int8[:, :, : start_pos]
-                    xq_v_cache = xq_v_cache.reshape(-1, start_pos)
+                    xq_v_cache = self.cache_v_int8[:, :, : start_pos_int8]
+                    xq_v_cache = xq_v_cache.reshape(-1, start_pos_int8)
                     max1_v_cache = self.SCB_v.view(-1, 1)
 
                     pastv = bnb.functional.vectorwise_dequant(
                         xq_v_cache, max1_v_cache,).half()
+                    
+                    if using_both_caches:
+                        xq_v_cache_fp16 = self.cache_v_fp16[0:
+                                                            self.quantize_cache_after_token]
+
+                        xq_v_cache_fp16 = xq_v_cache_fp16.view(
+                            self.quantize_cache_after_token, self.n_local_heads, self.head_dim
+                        ).permute((1, 2, 0)).reshape(-1, self.quantize_cache_after_token)
+
+                        xq_v_cache_fp16 = xq_v_cache_fp16.reshape(
+                            -1, self.quantize_cache_after_token)
+
+                        pastv = torch.cat([xq_v_cache_fp16, pastv], dim=-1)
+
                     values = torch.cat([pastv, xvc], dim=1)
                 else:
                     values = xvc
 
-                xq_v, max1 = bnb.functional.vectorwise_quant(values, dim=1)
+                xq_v, max1 = bnb.functional.vectorwise_quant(
+                    values[:, self.quantize_cache_after_token:], dim=1)
 
                 values = values.reshape(
                     self.n_local_heads, self.head_dim, -1).permute((2, 0, 1))[None, :].contiguous()
 
                 cache_scatter = xq_v.reshape(self.n_local_heads, self.head_dim, -1)
-                self.cache_v_int8[:, :, : start_pos + seqlen] = cache_scatter
+                self.cache_v_int8[:, :, : start_pos_int8 +
+                                  seqlen] = cache_scatter
                 self.SCB_v[:] = max1.view(*self.SCB_shape_dyn)
             else:
                 self.cache_k_fp16 = self.cache_k_fp16.to(xq)
