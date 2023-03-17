@@ -92,6 +92,7 @@ class Attention(nn.Module):
                  use_checkpoint_activations=True,
                  linear_kwargs=None,
                  quantize_cache=False,
+                 quantize_cache_after_token=0,
                  ):
         super().__init__()
 
@@ -130,6 +131,7 @@ class Attention(nn.Module):
         self.use_checkpoint = use_checkpoint
         self.use_checkpoint_activations = use_checkpoint_activations
         self.quantize_cache = quantize_cache
+        self.quantize_cache_after_token = quantize_cache_after_token
 
         self.mask = None
         if self.use_xformers:
@@ -137,28 +139,66 @@ class Attention(nn.Module):
             self.xops = xops
             self.mask = xops.LowerTriangularMask()
 
+        self.cache_k_fp16 = None
+        self.cache_v_fp16 = None
+        self.cache_k_int8 = None
+        self.cache_v_int8 = None
+
         if self.use_cache:
-            cache_shape = (args.max_batch_size, args.max_seq_len,
-                           self.n_local_heads, self.head_dim)
+            cache_len_fp16 = args.max_seq_len
+            cache_len_int8 = args.max_seq_len
+            if quantize_cache_after_token > 0:
+                cache_len_fp16 = quantize_cache_after_token
+                cache_len_int8 = args.max_seq_len - quantize_cache_after_token
+
+            cache_shape_fp16 = (
+                args.max_batch_size, 
+                cache_len_fp16,
+                self.n_local_heads,
+                self.head_dim,
+            )
+            cache_shape_int8 = (
+                self.n_local_heads,
+                self.head_dim,
+                cache_len_int8,
+            )
+
+            uses_fp16_cache = False
+            uses_int8_cache = False
+
             if quantize_cache:
+                uses_int8_cache = True
+
                 assert args.max_batch_size == 1
-                cache_shape = (
-                    self.n_local_heads,
-                    self.head_dim,
-                    args.max_seq_len,
-                )
-                self.SCB_shape = (cache_shape[0], cache_shape[1], 1)
-                self.SCB_shape_dyn = (-1, cache_shape[1], 1)
+
+                self.SCB_shape = (cache_len_int8[0], cache_len_int8[1], 1)
+                self.SCB_shape_dyn = (-1, cache_len_int8[1], 1)
                 self.SCB_k = torch.zeros(self.SCB_shape, device='cuda')
                 self.SCB_v = torch.zeros(self.SCB_shape, device='cuda')
-            self.cache_k = torch.zeros(
-                cache_shape,
-                dtype=torch.int8 if quantize_cache else self.wk.weight.dtype,
-            ).cuda()
-            self.cache_v = torch.zeros(
-                cache_shape,
-                dtype=torch.int8 if quantize_cache else self.wv.weight.dtype,
-            ).cuda()
+
+                if self.quantize_cache_after_token > 0:
+                    uses_fp16_cache = True
+            else:      
+                uses_fp16_cache = True
+
+            if uses_fp16_cache:
+                self.cache_k_fp16 = torch.zeros(
+                    cache_shape_fp16,
+                    dtype=self.wk.weight.dtype,
+                ).cuda()
+                self.cache_v_fp16 = torch.zeros(
+                    cache_shape_fp16,
+                    dtype=self.wk.weight.dtype,
+                ).cuda()
+            if uses_int8_cache:
+                self.cache_k_int8 = torch.zeros(
+                    cache_shape_int8,
+                    dtype=torch.int8,
+                ).cuda()
+                self.cache_v_int8 = torch.zeros(
+                    cache_shape_int8,
+                    dtype=torch.int8,
+                ).cuda()
 
     def forward(self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor]):
         if self.use_checkpoint:
@@ -178,15 +218,22 @@ class Attention(nn.Module):
         else:
             xq, xk = apply_rotary_emb(xq, xk, freqs_cis=freqs_cis)
 
+        using_int8_cache = False
+        transfer_to_int8_cache = False
+
+        if self.use_cache and self.quantize_cache:
+            using_int8_cache = start_pos > self.quantize_cache_after_token
+            transfer_to_int8_cache = (not using_int8_cache) and start_pos + seqlen > self.quantize_cache_after_token
+
         if self.use_cache:
-            if self.quantize_cache:
+            if using_int8_cache:
                 xkc = xk.view(seqlen, self.n_local_heads, self.head_dim).permute(
                     (1, 2, 0)).reshape(-1, seqlen)
                 xvc = xv.view(seqlen, self.n_local_heads, self.head_dim).permute(
                     (1, 2, 0)).reshape(-1, seqlen)
 
                 if start_pos > 0:
-                    xq_k_cache = self.cache_k[:, :, : start_pos]
+                    xq_k_cache = self.cache_k_int8[:, :, : start_pos]
                     xq_k_cache = xq_k_cache.reshape(-1, start_pos)
                     max1_k_cache = self.SCB_k.view(-1, 1)
 
@@ -204,12 +251,12 @@ class Attention(nn.Module):
 
                 cache_scatter = xq_k.reshape(self.n_local_heads, self.head_dim, -1)
 
-                self.cache_k[:, :, : start_pos + seqlen] = cache_scatter
+                self.cache_k_int8[:, :, : start_pos + seqlen] = cache_scatter
 
                 self.SCB_k[:] = max1.view(*self.SCB_shape_dyn)
 
                 if start_pos > 0:
-                    xq_v_cache = self.cache_v[:, :, : start_pos]
+                    xq_v_cache = self.cache_v_int8[:, :, : start_pos]
                     xq_v_cache = xq_v_cache.reshape(-1, start_pos)
                     max1_v_cache = self.SCB_v.view(-1, 1)
 
@@ -225,17 +272,47 @@ class Attention(nn.Module):
                     self.n_local_heads, self.head_dim, -1).permute((2, 0, 1))[None, :].contiguous()
 
                 cache_scatter = xq_v.reshape(self.n_local_heads, self.head_dim, -1)
-                self.cache_v[:, :, : start_pos + seqlen] = cache_scatter
+                self.cache_v_int8[:, :, : start_pos + seqlen] = cache_scatter
                 self.SCB_v[:] = max1.view(*self.SCB_shape_dyn)
             else:
-                self.cache_k = self.cache_k.to(xq)
-                self.cache_v = self.cache_v.to(xq)
+                self.cache_k_fp16 = self.cache_k_fp16.to(xq)
+                self.cache_v_fp16 = self.cache_v_fp16.to(xq)
 
-                self.cache_k[:bsz, start_pos: start_pos + seqlen] = xk
-                self.cache_v[:bsz, start_pos: start_pos + seqlen] = xv
+                if transfer_to_int8_cache:
+                    cache_k = self.cache_k_fp16[:bsz, : start_pos]
 
-                keys = self.cache_k[:bsz, : start_pos + seqlen]
-                values = self.cache_v[:bsz, : start_pos + seqlen]
+                    keys = torch.cat([cache_k, xk], dim=1)
+
+                    xkc = keys.view(start_pos + seqlen, self.n_local_heads, self.head_dim).permute(
+                        (1, 2, 0)
+                    ).reshape(-1, start_pos + seqlen)
+
+                    xq_k, max1 = bnb.functional.vectorwise_quant(xkc, dim=1)
+
+                    cache_scatter = xq_k.reshape(self.n_local_heads, self.head_dim, -1)
+
+                    self.cache_k_int8[:, :, : start_pos + seqlen] = cache_scatter
+
+                    cache_v = self.cache_v_fp16[:bsz, : start_pos]
+
+                    values = torch.cat([cache_v, xv], dim=1)
+
+                    xvc = values.view(start_pos + seqlen, self.n_local_heads, self.head_dim).permute(
+                        (1, 2, 0)
+                    ).reshape(-1, start_pos + seqlen)
+
+                    xq_v, max1 = bnb.functional.vectorwise_quant(xvc, dim=1)
+
+                    cache_scatter = xq_v.reshape(
+                        self.n_local_heads, self.head_dim, -1)
+
+                    self.cache_v_int8[:, :, : start_pos + seqlen] = cache_scatter
+                else:
+                    self.cache_k_fp16[:bsz, start_pos: start_pos + seqlen] = xk
+                    self.cache_v_fp16[:bsz, start_pos: start_pos + seqlen] = xv
+
+                    keys = self.cache_k_fp16[:bsz, : start_pos + seqlen]
+                    values = self.cache_v_fp16[:bsz, : start_pos + seqlen]
         else:
             keys = xk
             values = xv
@@ -321,6 +398,7 @@ class TransformerBlock(nn.Module):
                  use_cache=False, 
                  linear_kwargs=None,
                  quantize_cache=False,
+                 quantize_cache_after_token=0,
                  ):
         super().__init__()
         self.n_heads = args.n_heads
@@ -333,6 +411,7 @@ class TransformerBlock(nn.Module):
                                    use_cache=use_cache,
                                    linear_kwargs=linear_kwargs,
                                    quantize_cache=quantize_cache,
+                                   quantize_cache_after_token=quantize_cache_after_token,
                                    )
         self.feed_forward = FeedForward(
             dim=args.dim, hidden_dim=4 * args.dim, multiple_of=args.multiple_of,
@@ -374,7 +453,8 @@ class Transformer(nn.Module):
                  fp32_logits=True,
                  allow_quantize_unembed=True,
                  quantize_cache=False,
-                 quantize_cache_above=0,):
+                 quantize_cache_above=0,
+                 quantize_cache_after_token=0,):
         super().__init__()
         self.params = params
         self.vocab_size = params.vocab_size
@@ -407,6 +487,7 @@ class Transformer(nn.Module):
                 use_checkpoint_activations=False,
                 use_cache=use_cache,
                 quantize_cache=quantize_cache and layer_id >= quantize_cache_above,
+                quantize_cache_after_token=quantize_cache_after_token,
                 linear_kwargs=linear_kwargs,
             )
             self.layers.append(make_layer())
