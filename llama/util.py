@@ -5,7 +5,34 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.checkpoint import checkpoint
 
+import bitsandbytes.nn.modules
 import bitsandbytes as bnb
+
+
+"""
+monkeypatch Int8Params.cuda() to make it idempotent
+"""
+def patched_cuda(self, device):
+    if self.has_fp16_weights:
+        return super(bitsandbytes.nn.modules.Int8Params, self).cuda(device)
+    else:
+        if getattr(self, 'CB', None) is None:
+            # we store the 8-bit rows-major weight
+            # we convert this weight to the turning/ampere weight during the first inference pass
+            B = self.data.contiguous().half().cuda(device)
+            CB, CBt, SCB, SCBt, coo_tensorB = bnb.functional.double_quant(B)
+            del CBt
+            del SCBt
+            self.data = CB
+            setattr(self, "CB", CB)
+            setattr(self, "SCB", SCB)
+        else:
+            print(f"skipping double cuda with CB {self.CB.dtype}")
+
+    return self
+
+
+bitsandbytes.nn.modules.Int8Params.cuda = patched_cuda
 
 
 class HookedDict(dict):

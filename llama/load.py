@@ -11,11 +11,16 @@ from pathlib import Path
 from llama import ModelArgs, Transformer, Tokenizer, LLaMA
 
 
-def load_state_dict_meta(module, sd, device, delete_after=True):
+def load_state_dict_meta(module, sd, device_param_copy, device_mod, delete_after=True):
     outs = {'unexpected_keys': []}
     with torch.no_grad():
-        for tensor_name in list(sd.keys()):
+        for tensor_name in sorted(sd.keys()):
+            # print(f"loading {tensor_name}")
             new_value = sd[tensor_name]
+            if delete_after:
+                del sd[tensor_name]
+                gc.collect()
+
             is_buffer = tensor_name in module._buffers
             if is_buffer:
                 module._buffers[tensor_name] = new_value
@@ -25,16 +30,28 @@ def load_state_dict_meta(module, sd, device, delete_after=True):
                 except:
                     outs['unexpected_keys'].append(tensor_name)
                     continue
-                
+
                 param_cls = type(old_value)
                 kwargs = old_value.__dict__
-                new_value = param_cls(new_value, requires_grad=old_value.requires_grad, **kwargs).to(device)
+                new_value = param_cls(
+                    new_value, requires_grad=old_value.requires_grad, **kwargs).to(device_param_copy)
 
-                submod_name, _, submod_tensor_name = tensor_name.rpartition('.')
+                submod_name, _, submod_tensor_name = tensor_name.rpartition(
+                    '.')
 
-                module.get_submodule(submod_name)._parameters[submod_tensor_name] = new_value
-            if delete_after:
-                del sd[tensor_name]
+                print(f"loading {tensor_name} to {submod_name}")
+
+                module.get_submodule(
+                    submod_name)._parameters[submod_tensor_name] = new_value
+
+                ready_to_transfer = not any(
+                    k.startswith(submod_name + '.') for k in sd)
+                if ready_to_transfer:
+                    # print(f"transferring {submod_name} to {device_mod}")
+                    module.get_submodule(submod_name).to(device=device_mod)
+                else:
+                    pass
+                    # print(f"not transferring {submod_name}: params still in sd {[k for k in sd if k.startswith(submod_name + '.')]}")
     return outs
 
 
@@ -105,12 +122,7 @@ def load(ckpt_dir: str, tokenizer_path: str, local_rank: int, world_size: int, n
     checkpoint = torch.load(ckpt_path, map_location=maploc if (lowmem and not quantize_frozen) else "cpu")
 
     if lowmem:
-        if not quantize_frozen:
-            outs = load_state_dict_meta(model, checkpoint, 'cuda:0')
-        else:
-            for k in list(checkpoint.keys()):
-                outs = model.load_state_dict({k: checkpoint[k]}, strict=False)
-                del checkpoint[k]
+        outs = load_state_dict_meta(model, checkpoint, 'cpu', 'cuda:0')
     else:
         outs = model.load_state_dict(checkpoint, strict=False)
 

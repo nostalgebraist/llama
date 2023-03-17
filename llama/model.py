@@ -15,21 +15,6 @@ from torch.utils.checkpoint import checkpoint, checkpoint_sequential
 from llama.util import make_linear, LoraWrapper
 
 
-def init_8bit(loading_code, **kwargs):
-    def fn():
-        ORIG_LINEAR = torch.nn.__dict__['Linear']
-
-        torch.nn.__dict__['Linear'] = Linear8bitLtInference
-        try:
-            result = loading_code(**kwargs)
-        finally:
-            torch.nn.__dict__['Linear'] = ORIG_LINEAR
-
-        return result
-
-    return fn
-
-
 @dataclass
 class ModelArgs:
     dim: int = 512
