@@ -40,7 +40,7 @@ def load_state_dict_meta(module, sd, device_param_copy, device_mod, delete_after
                 submod_name, _, submod_tensor_name = tensor_name.rpartition(
                     '.')
 
-                print(f"loading {tensor_name} to {submod_name}")
+                # print(f"loading {tensor_name} to {submod_name}")
 
                 module.get_submodule(
                     submod_name)._parameters[submod_tensor_name] = new_value
