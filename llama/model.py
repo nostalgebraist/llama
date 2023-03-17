@@ -171,8 +171,8 @@ class Attention(nn.Module):
 
                 assert args.max_batch_size == 1
 
-                self.SCB_shape = (cache_len_int8[0], cache_len_int8[1], 1)
-                self.SCB_shape_dyn = (-1, cache_len_int8[1], 1)
+                self.SCB_shape = (cache_shape_int8[0], cache_shape_int8[1], 1)
+                self.SCB_shape_dyn = (-1, cache_shape_int8[1], 1)
                 self.SCB_k = torch.zeros(self.SCB_shape, device='cuda')
                 self.SCB_v = torch.zeros(self.SCB_shape, device='cuda')
 
