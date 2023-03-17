@@ -5,6 +5,7 @@ import torch
 import fire
 import time
 import json
+import gc
 
 from pathlib import Path
 
