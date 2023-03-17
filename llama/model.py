@@ -205,6 +205,7 @@ class Attention(nn.Module):
             return checkpoint(self._forward, x, start_pos, freqs_cis, mask)
         return self._forward(x, start_pos, freqs_cis, mask)
 
+
     def _forward(self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor]):
         bsz, seqlen, _ = x.shape
         xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
@@ -219,13 +220,12 @@ class Attention(nn.Module):
             xq, xk = apply_rotary_emb(xq, xk, freqs_cis=freqs_cis)
 
         using_int8_cache = False
-        transfer_to_int8_cache = False
         using_both_caches = False
-        start_pos_int8 = start_pos - self.quantize_cache_after_token
+        start_pos_int8 = max(start_pos - self.quantize_cache_after_token, 0)
 
         if self.use_cache and self.quantize_cache:
-            using_int8_cache = start_pos > self.quantize_cache_after_token
-            # transfer_to_int8_cache = (not using_int8_cache) and start_pos + seqlen > self.quantize_cache_after_token
+            using_int8_cache = max(
+                start_pos, seqlen) > self.quantize_cache_after_token
             using_both_caches = using_int8_cache and self.quantize_cache_after_token > 0
 
         if self.use_cache:
@@ -235,7 +235,7 @@ class Attention(nn.Module):
                 xvc = xv.view(seqlen, self.n_local_heads, self.head_dim).permute(
                     (1, 2, 0)).reshape(-1, seqlen)
 
-                if start_pos > 0:
+                if start_pos_int8 > 0:
                     xq_k_cache = self.cache_k_int8[:, :, : start_pos_int8]
                     xq_k_cache = xq_k_cache.reshape(-1, start_pos_int8)
                     max1_k_cache = self.SCB_k.view(-1, 1)
@@ -244,13 +244,15 @@ class Attention(nn.Module):
                         xq_k_cache, max1_k_cache,).half()
 
                     if using_both_caches:
-                        xq_k_cache_fp16 = self.cache_k_fp16[0:self.quantize_cache_after_token]
+                        xq_k_cache_fp16 = self.cache_k_fp16[0:
+                                                            self.quantize_cache_after_token]
 
                         xq_k_cache_fp16 = xq_k_cache_fp16.view(
                             self.quantize_cache_after_token, self.n_local_heads, self.head_dim
                         ).permute((1, 2, 0)).reshape(-1, self.quantize_cache_after_token)
 
-                        xq_k_cache_fp16 = xq_k_cache_fp16.reshape(-1, self.quantize_cache_after_token)
+                        xq_k_cache_fp16 = xq_k_cache_fp16.reshape(
+                            -1, self.quantize_cache_after_token)
 
                         pastk = torch.cat([xq_k_cache_fp16, pastk], dim=-1)
 
@@ -266,7 +268,17 @@ class Attention(nn.Module):
 
                 cache_scatter = xq_k.reshape(self.n_local_heads, self.head_dim, -1)
 
-                self.cache_k_int8[:, :, : start_pos_int8 + seqlen] = cache_scatter
+                if start_pos_int8 == 0 and seqlen > self.quantize_cache_after_token:
+                    self.cache_k_int8[:, :, : seqlen -
+                                    self.quantize_cache_after_token] = cache_scatter
+
+                    # scatter first part into fp16
+                    fp16_cache_scatter = keys[:, :self.quantize_cache_after_token]
+                    self.cache_k_fp16[:bsz,
+                                    :self.quantize_cache_after_token] = fp16_cache_scatter
+                else:
+                    self.cache_k_int8[:, :, : start_pos_int8 +
+                                    seqlen] = cache_scatter
 
                 self.SCB_k[:] = max1.view(*self.SCB_shape_dyn)
 
@@ -277,7 +289,7 @@ class Attention(nn.Module):
 
                     pastv = bnb.functional.vectorwise_dequant(
                         xq_v_cache, max1_v_cache,).half()
-                    
+
                     if using_both_caches:
                         xq_v_cache_fp16 = self.cache_v_fp16[0:
                                                             self.quantize_cache_after_token]
@@ -302,48 +314,31 @@ class Attention(nn.Module):
                     self.n_local_heads, self.head_dim, -1).permute((2, 0, 1))[None, :].contiguous()
 
                 cache_scatter = xq_v.reshape(self.n_local_heads, self.head_dim, -1)
-                self.cache_v_int8[:, :, : start_pos_int8 +
-                                  seqlen] = cache_scatter
+
                 self.SCB_v[:] = max1.view(*self.SCB_shape_dyn)
+
+                if start_pos_int8 == 0 and seqlen > self.quantize_cache_after_token:
+                    self.cache_v_int8[:, :, : seqlen -
+                                    self.quantize_cache_after_token] = cache_scatter
+
+                    # scatter first part into fp16
+                    fp16_cache_scatter = values[:,
+                                                :self.quantize_cache_after_token]
+                    self.cache_v_fp16[:bsz,
+                                    :self.quantize_cache_after_token] = fp16_cache_scatter
+                else:
+                    self.cache_v_int8[:, :, : start_pos_int8 +
+                                    seqlen] = cache_scatter
+
             else:
                 self.cache_k_fp16 = self.cache_k_fp16.to(xq)
                 self.cache_v_fp16 = self.cache_v_fp16.to(xq)
 
-                if transfer_to_int8_cache:
-                    cache_k = self.cache_k_fp16[:bsz, : start_pos]
+                self.cache_k_fp16[:bsz, start_pos: start_pos + seqlen] = xk
+                self.cache_v_fp16[:bsz, start_pos: start_pos + seqlen] = xv
 
-                    keys = torch.cat([cache_k, xk], dim=1)
-
-                    xkc = keys.view(start_pos + seqlen, self.n_local_heads, self.head_dim).permute(
-                        (1, 2, 0)
-                    ).reshape(-1, start_pos + seqlen)
-
-                    xq_k, max1 = bnb.functional.vectorwise_quant(xkc, dim=1)
-
-                    cache_scatter = xq_k.reshape(self.n_local_heads, self.head_dim, -1)
-
-                    self.cache_k_int8[:, :, : start_pos + seqlen] = cache_scatter
-
-                    cache_v = self.cache_v_fp16[:bsz, : start_pos]
-
-                    values = torch.cat([cache_v, xv], dim=1)
-
-                    xvc = values.view(start_pos + seqlen, self.n_local_heads, self.head_dim).permute(
-                        (1, 2, 0)
-                    ).reshape(-1, start_pos + seqlen)
-
-                    xq_v, max1 = bnb.functional.vectorwise_quant(xvc, dim=1)
-
-                    cache_scatter = xq_v.reshape(
-                        self.n_local_heads, self.head_dim, -1)
-
-                    self.cache_v_int8[:, :, : start_pos + seqlen] = cache_scatter
-                else:
-                    self.cache_k_fp16[:bsz, start_pos: start_pos + seqlen] = xk
-                    self.cache_v_fp16[:bsz, start_pos: start_pos + seqlen] = xv
-
-                    keys = self.cache_k_fp16[:bsz, : start_pos + seqlen]
-                    values = self.cache_v_fp16[:bsz, : start_pos + seqlen]
+                keys = self.cache_k_fp16[:bsz, : start_pos + seqlen]
+                values = self.cache_v_fp16[:bsz, : start_pos + seqlen]
         else:
             keys = xk
             values = xv
