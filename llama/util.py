@@ -27,7 +27,8 @@ def patched_cuda(self, device):
             setattr(self, "CB", CB)
             setattr(self, "SCB", SCB)
         else:
-            print(f"skipping double cuda with CB {self.CB.dtype}")
+            pass
+            # print(f"skipping double cuda with CB {self.CB.dtype}")
 
     return self
 
