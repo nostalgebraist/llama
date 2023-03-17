@@ -54,6 +54,7 @@ def load(ckpt_dir: str, tokenizer_path: str, local_rank: int, world_size: int, n
          lowmem=False,
          lowmem_cpu_ratio=1,
          fp32_logits=True,
+         **kwargs,
          ) -> LLaMA:
     start_time = time.time()
 
@@ -97,6 +98,7 @@ def load(ckpt_dir: str, tokenizer_path: str, local_rank: int, world_size: int, n
                         n_checkpoint_segments=n_checkpoint_segments,
                         linear_device='meta' if lowmem else None,
                         fp32_logits=fp32_logits,
+                        **kwargs
                         )
     torch.set_default_tensor_type(torch.FloatTensor)
 
