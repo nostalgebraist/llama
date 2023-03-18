@@ -14,10 +14,15 @@ from llama import ModelArgs, Transformer, Tokenizer, LLaMA
 
 def load_state_dict_meta(module, sd, device_param_copy, device_mod, delete_after=True):
     outs = {'unexpected_keys': []}
+    
+    sd_keys = sorted(sd.keys())
+    not_loaded_keys = set(sd_keys)
+
     with torch.no_grad():
-        for tensor_name in sorted(sd.keys()):
+        for tensor_name in sd_keys:
             # print(f"loading {tensor_name}")
             new_value = sd[tensor_name]
+            not_loaded_keys.remove(tensor_name)
             if delete_after:
                 del sd[tensor_name]
                 gc.collect()
@@ -46,7 +51,7 @@ def load_state_dict_meta(module, sd, device_param_copy, device_mod, delete_after
                     submod_name)._parameters[submod_tensor_name] = new_value
 
                 ready_to_transfer = not any(
-                    k.startswith(submod_name + '.') for k in sd)
+                    k.startswith(submod_name + '.') for k in not_loaded_keys)
                 if ready_to_transfer:
                     # print(f"transferring {submod_name} to {device_mod}")
                     module.get_submodule(submod_name).to(device=device_mod)
