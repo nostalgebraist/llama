@@ -77,7 +77,7 @@ def load(ckpt_dir: str, tokenizer_path: str, local_rank: int, world_size: int, n
          ) -> LLaMA:
     start_time = time.time()
 
-    if not ckpt_path:
+    if not ckpt_path and not checkpoint:
         checkpoints = sorted(Path(ckpt_dir).glob("*.pth"))
         assert (
             world_size == len(checkpoints)
