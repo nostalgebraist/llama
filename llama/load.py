@@ -72,6 +72,7 @@ def load(ckpt_dir: str, tokenizer_path: str, local_rank: int, world_size: int, n
          lowmem=False,
          lowmem_cpu_ratio=1,
          fp32_logits=True,
+         checkpoint=None,
          **kwargs,
          ) -> LLaMA:
     start_time = time.time()
@@ -120,7 +121,8 @@ def load(ckpt_dir: str, tokenizer_path: str, local_rank: int, world_size: int, n
                         )
     torch.set_default_tensor_type(torch.FloatTensor)
 
-    checkpoint = torch.load(ckpt_path, map_location=maploc if (lowmem and not quantize_frozen) else "cpu")
+    if not checkpoint:
+        checkpoint = torch.load(ckpt_path, map_location=maploc if (lowmem and not quantize_frozen) else "cpu")
 
     if lowmem:
         outs = load_state_dict_meta(model, checkpoint, 'cpu', 'cuda:0')
