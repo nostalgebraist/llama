@@ -87,7 +87,9 @@ def apply_rotary_emb(
 
 
 class Attention(nn.Module):
-    def __init__(self, args: ModelArgs, use_cache=False, use_xformers=True, 
+    def __init__(self, args: ModelArgs, use_cache=False, 
+                 use_xformers=True, 
+                 use_torch_native_attn=True,
                  use_checkpoint=False,
                  use_checkpoint_activations=True,
                  linear_kwargs=None,
@@ -125,7 +127,8 @@ class Attention(nn.Module):
         )
 
         self.use_cache = use_cache
-        self.use_xformers = use_xformers
+        self.use_xformers = use_xformers and not use_torch_native_attn
+        self.use_torch_native_attn = use_torch_native_attn
         self.use_checkpoint = use_checkpoint
         self.use_checkpoint_activations = use_checkpoint_activations
 
@@ -176,7 +179,11 @@ class Attention(nn.Module):
             keys = xk
             values = xv
 
-        if self.use_xformers:
+        if self.use_torch_native_attn:
+            output = torch.nn.functional.scaled_dot_product_attention(
+                xq, keys, values, attn_bias=None, is_causal=seqlen > 1
+            )
+        elif self.use_xformers:
             output = self.xops.memory_efficient_attention(
                 xq, keys, values, attn_bias=self.mask if seqlen > 1 else None
             )
@@ -296,6 +303,7 @@ class TransformerBlock(nn.Module):
 class Transformer(nn.Module):
     def __init__(self, params: ModelArgs, 
                  use_xformers: bool = True,
+                 use_torch_native_attn=True,
                  use_checkpoint=True,
                  n_checkpoint_segments=4,
                  freeze_layers_below_n=0,
@@ -359,7 +367,8 @@ class Transformer(nn.Module):
         self.freqs_cis = precompute_freqs_cis(
             self.params.dim // self.params.n_heads, self.params.max_seq_len * 2
         )
-        self.use_xformers = use_xformers
+        self.use_xformers = use_xformers and not use_torch_native_attn
+        self.use_torch_native_attn = use_torch_native_attn
 
         for layer in self.layers[:self.freeze_layers_below_n]:
             layer.requires_grad_(False)
