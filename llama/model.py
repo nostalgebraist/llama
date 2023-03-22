@@ -205,7 +205,7 @@ class Attention(nn.Module):
                 1, 2
             ).contiguous()
 
-        output = output.view(bsz, seqlen, -1)
+        output = output.reshape(bsz, seqlen, -1)
 
         return self.wo(output)
 
