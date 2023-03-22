@@ -181,7 +181,7 @@ class Attention(nn.Module):
 
         if self.use_torch_native_attn:
             output = torch.nn.functional.scaled_dot_product_attention(
-                xq, keys, values, attn_bias=None, is_causal=seqlen > 1
+                xq, keys, values, attn_mask=None, is_causal=seqlen > 1
             )
         elif self.use_xformers:
             output = self.xops.memory_efficient_attention(
