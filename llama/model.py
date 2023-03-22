@@ -180,9 +180,17 @@ class Attention(nn.Module):
             values = xv
 
         if self.use_torch_native_attn:
+            xq = xq.transpose(1, 2)
+            keys = keys.transpose(1, 2)
+            values = values.transpose(1, 2)
+
             output = torch.nn.functional.scaled_dot_product_attention(
                 xq, keys, values, attn_mask=None, is_causal=seqlen > 1
             )
+
+            output = output.transpose(
+                1, 2
+            ).contiguous()
         elif self.use_xformers:
             output = self.xops.memory_efficient_attention(
                 xq, keys, values, attn_bias=self.mask if seqlen > 1 else None
@@ -205,7 +213,7 @@ class Attention(nn.Module):
                 1, 2
             ).contiguous()
 
-        output = output.reshape(bsz, seqlen, -1)
+        output = output.view(bsz, seqlen, -1)
 
         return self.wo(output)
 
