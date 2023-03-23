@@ -10,9 +10,9 @@ import bitsandbytes as bnb
 import torch
 from torch import nn
 import torch.nn.functional as F
-from torch.utils.checkpoint import checkpoint, checkpoint_sequential
+# from torch.utils.checkpoint import checkpoint, checkpoint_sequential
 
-from llama.util import make_linear, LoraWrapper
+from llama.util import make_linear, LoraWrapper, checkpoint, checkpoint_sequential
 
 
 def init_8bit(loading_code, **kwargs):
