@@ -400,13 +400,29 @@ class Transformer(nn.Module):
                 h = layer(h, start_pos, freqs_cis, mask)
             h.requires_grad_(True)
 
-            fwds = [partial(layer.forward, start_pos=start_pos, freqs_cis=freqs_cis, mask=mask)
-                    for layer in self.layers[self.freeze_layers_below_n:]]
+            functions = [
+                l.forward for l in self.layers[self.freeze_layers_below_n:]]
 
-            h = checkpoint_sequential(
-                fwds, self.n_checkpoint_segments,
-                h
-            )
+            def run_function(start, end, functions):
+                def forward(input_):
+                    for j in range(start, end + 1):
+                        input_ = functions[j](
+                            input_, start_pos=start_pos, freqs_cis=freqs_cis, mask=mask)
+                    return input_
+                return forward
+
+            segment_size = len(functions) // self.n_checkpoint_segments
+            # the last chunk has to be non-volatile
+            end = -1
+            for start in range(0, segment_size * (self.n_checkpoint_segments - 1), segment_size):
+                end = start + segment_size - 1
+                h = checkpoint(
+                    run_function(start, end, functions),
+                    h,
+                    # use_reentrant=use_reentrant,
+                    # preserve_rng_state=False,
+                )
+            h = run_function(end + 1, len(functions) - 1, functions)(h)
         else:
             for layer in self.layers:
                 h = layer(h, start_pos, freqs_cis, mask)
