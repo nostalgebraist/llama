@@ -3,13 +3,17 @@ import math
 import torch as th
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.checkpoint import checkpoint as th_checkpoint
+from torch.utils.checkpoint import checkpoint as th_checkpoint, checkpoint_sequential as th_checkpoint_sequential
 
 import bitsandbytes as bnb
 
 
 def checkpoint(*args, **kwargs):
     return th_checkpoint(*args, preserve_rng_state=False, **kwargs)
+
+
+def checkpoint_sequential(*args, **kwargs):
+    return th_checkpoint_sequential(*args, preserve_rng_state=False, **kwargs)
 
 
 class HookedDict(dict):
