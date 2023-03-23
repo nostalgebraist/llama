@@ -5,6 +5,17 @@ import bitsandbytes.functional
 import bitsandbytes.autograd._functions
 
 
+def pre_call(device):
+    return device
+
+
+def post_call(prev_device):
+    return
+
+bitsandbytes.functional.pre_call = pre_call
+bitsandbytes.functional.post_call = post_call
+
+
 def get_colrow_absmax(
     A, row_stats=None, col_stats=None, nnz_block_ptr=None, threshold=0.0
 ):
