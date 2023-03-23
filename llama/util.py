@@ -3,9 +3,13 @@ import math
 import torch as th
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.checkpoint import checkpoint
+from torch.utils.checkpoint import checkpoint as th_checkpoint
 
 import bitsandbytes as bnb
+
+
+def checkpoint(*args, **kwargs):
+    return th_checkpoint(*args, preserve_rng_state=False, **kwargs)
 
 
 class HookedDict(dict):
