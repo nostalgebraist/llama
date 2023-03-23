@@ -11,11 +11,11 @@ from llama.bnb_patches import *
 
 
 def checkpoint(*args, **kwargs):
-    return th_checkpoint(*args, preserve_rng_state=False, use_reentrant=False, **kwargs)
+    return th_checkpoint(*args, preserve_rng_state=False, **kwargs)
 
 
 def checkpoint_sequential(*args, **kwargs):
-    return th_checkpoint_sequential(*args, preserve_rng_state=False, use_reentrant=False, **kwargs)
+    return th_checkpoint_sequential(*args, preserve_rng_state=False, **kwargs)
 
 
 class HookedDict(dict):
