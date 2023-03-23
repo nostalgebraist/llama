@@ -400,10 +400,8 @@ class Transformer(nn.Module):
                 h = layer(h, start_pos, freqs_cis, mask)
             h.requires_grad_(True)
 
-            fwds = []
-            for layer in self.layers[self.freeze_layers_below_n:]:
-                fwds.append(lambda x: layer.forward(
-                    x, start_pos=start_pos, freqs_cis=freqs_cis, mask=mask))
+            fwds = [partial(layer.forward, start_pos=start_pos, freqs_cis=freqs_cis, mask=mask)
+                    for layer in self.layers[self.freeze_layers_below_n:]]
 
             h = checkpoint_sequential(
                 fwds, self.n_checkpoint_segments,
