@@ -36,6 +36,23 @@ def patched_cuda(self, device):
 bitsandbytes.nn.modules.Int8Params.cuda = patched_cuda
 
 
+def vectorwise_quant(x, dim=1):
+    C = 127.0
+
+    max1 = th.amax(th.abs(x), dim=dim, keepdim=True)
+    xq = th.round(x * (C / max1)).to(th.int8)
+    return xq, max1
+
+
+def vectorwise_dequant(x, dim=1):
+    C = 127.0
+
+    max1 = th.amax(th.abs(x), dim=dim, keepdim=True)
+    xq = th.round(x * (C / max1)).to(th.int8)
+    return xq, max1
+
+
+
 class HookedDict(dict):
     def __setitem__(self, k, v):
         super().__setitem__(k, v)

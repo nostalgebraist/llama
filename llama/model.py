@@ -12,7 +12,7 @@ from torch import nn
 import torch.nn.functional as F
 from torch.utils.checkpoint import checkpoint, checkpoint_sequential
 
-from llama.util import make_linear, LoraWrapper
+from llama.util import make_linear, LoraWrapper, vectorwise_quant, vectorwise_dequant
 
 
 @dataclass
@@ -225,8 +225,9 @@ class Attention(nn.Module):
                     xq_k_cache = xq_k_cache.reshape(-1, start_pos_int8)
                     max1_k_cache = self.SCB_k.view(-1, 1)
 
-                    pastk = bnb.functional.vectorwise_dequant(
-                        xq_k_cache, max1_k_cache,).half()
+                    pastk = vectorwise_dequant(
+                        xq_k_cache, max1_k_cache, dtype=torch.float16
+                    )
 
                     if using_both_caches:
                         xq_k_cache_fp16 = self.cache_k_fp16[0:
@@ -245,7 +246,7 @@ class Attention(nn.Module):
                 else:
                     keys = xkc
 
-                xq_k, max1 = bnb.functional.vectorwise_quant(
+                xq_k, max1 = vectorwise_quant(
                     keys[:, self.quantize_cache_after_token:], dim=1)
 
                 keys = keys.reshape(
@@ -272,8 +273,9 @@ class Attention(nn.Module):
                     xq_v_cache = xq_v_cache.reshape(-1, start_pos_int8)
                     max1_v_cache = self.SCB_v.view(-1, 1)
 
-                    pastv = bnb.functional.vectorwise_dequant(
-                        xq_v_cache, max1_v_cache,).half()
+                    pastv = vectorwise_dequant(
+                        xq_v_cache, max1_v_cache, dtype=torch.float16
+                    )
 
                     if using_both_caches:
                         xq_v_cache_fp16 = self.cache_v_fp16[0:
@@ -292,7 +294,7 @@ class Attention(nn.Module):
                 else:
                     values = xvc
 
-                xq_v, max1 = bnb.functional.vectorwise_quant(
+                xq_v, max1 = vectorwise_quant(
                     values[:, self.quantize_cache_after_token:], dim=1)
 
                 values = values.reshape(
