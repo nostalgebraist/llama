@@ -44,12 +44,9 @@ def vectorwise_quant(x, dim=1):
     return xq, max1
 
 
-def vectorwise_dequant(x, dim=1):
+def vectorwise_dequant(xq, max1, dtype):
     C = 127.0
-
-    max1 = th.amax(th.abs(x), dim=dim, keepdim=True)
-    xq = th.round(x * (C / max1)).to(th.int8)
-    return xq, max1
+    return (xq / C * max1).to(dtype=dtype)
 
 
 
