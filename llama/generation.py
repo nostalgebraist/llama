@@ -82,7 +82,7 @@ class LLaMA:
                                         debug=debug)
             temperature = 1.0
 
-        ranger = partial(trange, mininterval=0.25) if progress_bar else range
+        ranger = partial(trange, mininterval=0.5, miniters=1, smoothing=0) if progress_bar else range
 
         for cur_pos in ranger(start_pos, total_len):
             if allow_xformers and (all_xformers or (cur_pos - prev_pos > 1)):
