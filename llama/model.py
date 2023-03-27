@@ -258,10 +258,11 @@ class Attention(nn.Module):
                     self.cache_k_int8[:, :, : seqlen -
                                     self.quantize_cache_after_token] = cache_scatter
 
-                    # scatter first part into fp16
-                    fp16_cache_scatter = keys[:, :self.quantize_cache_after_token]
-                    self.cache_k_fp16[:bsz,
-                                    :self.quantize_cache_after_token] = fp16_cache_scatter
+                    if using_both_caches:
+                        # scatter first part into fp16
+                        fp16_cache_scatter = keys[:, :self.quantize_cache_after_token]
+                        self.cache_k_fp16[:bsz,
+                                        :self.quantize_cache_after_token] = fp16_cache_scatter
                 else:
                     self.cache_k_int8[:, :, : start_pos_int8 +
                                     seqlen] = cache_scatter
@@ -308,11 +309,12 @@ class Attention(nn.Module):
                     self.cache_v_int8[:, :, : seqlen -
                                     self.quantize_cache_after_token] = cache_scatter
 
-                    # scatter first part into fp16
-                    fp16_cache_scatter = values[:,
-                                                :self.quantize_cache_after_token]
-                    self.cache_v_fp16[:bsz,
-                                    :self.quantize_cache_after_token] = fp16_cache_scatter
+                    if using_both_caches:
+                        # scatter first part into fp16
+                        fp16_cache_scatter = values[:,
+                                                    :self.quantize_cache_after_token]
+                        self.cache_v_fp16[:bsz,
+                                        :self.quantize_cache_after_token] = fp16_cache_scatter
                 else:
                     self.cache_v_int8[:, :, : start_pos_int8 +
                                     seqlen] = cache_scatter
