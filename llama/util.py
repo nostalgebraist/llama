@@ -6,6 +6,7 @@ import torch.nn.functional as F
 from torch.utils.checkpoint import checkpoint
 
 import bitsandbytes.nn.modules
+import bitsandbytes.functional
 import bitsandbytes as bnb
 
 
@@ -34,6 +35,18 @@ def patched_cuda(self, device):
 
 
 bitsandbytes.nn.modules.Int8Params.cuda = patched_cuda
+
+
+# avoid overhead with 1 gpu
+def pre_call(device):
+    return device
+
+
+def post_call(prev_device):
+    return
+
+bitsandbytes.functional.pre_call = pre_call
+bitsandbytes.functional.post_call = post_call
 
 
 def vectorwise_quant(x, dim=1):
