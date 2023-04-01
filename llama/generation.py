@@ -46,6 +46,7 @@ class LLaMA:
         return_stop_reason=False,
         decode=True,
         extra_logits_processors=None,
+        cache_build_size=None,
     ) -> List[str]:
         bsz = len(prompts)
         params = self.model.params
@@ -89,6 +90,11 @@ class LLaMA:
                 self.model.apply(xformers_on);
             else:
                 self.model.apply(xformers_off);
+
+            if cache_build_size is not None:
+                while cur_pos - prev_pos > cache_build_size:
+                    self.model.forward(self.tokens[:, prev_pos:prev_pos + cache_build_size], prev_pos)
+                    prev_pos = prev_pos + cache_build_size
 
             logits = self.model.forward(self.tokens[:, prev_pos:cur_pos], prev_pos)[:, -1, :]
 
