@@ -549,8 +549,8 @@ class Transformer(nn.Module):
         freqs_cis = self.freqs_cis[start_pos : start_pos + seqlen]
 
         mask = None
-        if not self.use_xformers and seqlen > 1:
-            mask = torch.full((1, 1, seqlen, seqlen), float("-inf"), device=tokens.device)
+        if seqlen > 1:
+            mask = torch.full((1, 1, seqlen, seqlen + start_pos), float("-inf"), device=tokens.device)
             mask = torch.triu(mask, diagonal=start_pos + 1).type_as(h)
 
         if self.use_checkpoint:
