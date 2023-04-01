@@ -72,12 +72,15 @@ def apply_rotary_emb(
 
 
 class Attention(nn.Module):
-    def __init__(self, args: ModelArgs, use_cache=False, use_xformers=True, 
+    def __init__(self, args: ModelArgs, 
+                 use_cache=False, 
+                 use_xformers=True, 
                  use_checkpoint=False,
                  use_checkpoint_activations=True,
                  linear_kwargs=None,
                  quantize_cache=False,
                  quantize_cache_after_token=0,
+                 xformers_op=None,
                  ):
         super().__init__()
 
@@ -117,6 +120,7 @@ class Attention(nn.Module):
         self.use_checkpoint_activations = use_checkpoint_activations
         self.quantize_cache = quantize_cache
         self.quantize_cache_after_token = quantize_cache_after_token
+        self.xformers_op = xformers_op
 
         self.mask = None
         if self.use_xformers:
@@ -334,7 +338,9 @@ class Attention(nn.Module):
 
         if self.use_xformers:
             output = self.xops.memory_efficient_attention(
-                xq, keys, values, attn_bias=self.mask if seqlen > 1 else None
+                xq, keys, values, 
+                attn_bias=self.mask if seqlen > 1 else None,
+                op=self.xformers_op,
             )
         else:
             xq = xq.transpose(1, 2)
