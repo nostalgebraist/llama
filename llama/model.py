@@ -337,14 +337,17 @@ class Attention(nn.Module):
             values = xv
 
         if self.use_xformers:
-            mask = None
+            xmask = None
             if start_pos == 0:
-                mask = self.mask
+                xmask = self.mask
             elif seqlen > 1:
-                mask = mask
+                # only on newer xformers
+                xmask = xformers.ops.fmha.BlockDiagonalMask.from_seqlens(
+                    [seqlen], [start_pos + seqlen]
+                    ).make_causal_from_bottomright()
             output = self.xops.memory_efficient_attention(
                 xq, keys, values,
-                attn_bias=mask,
+                attn_bias=xmask,
                 op=self.xformers_op,
             )
         else:
