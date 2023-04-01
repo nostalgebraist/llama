@@ -337,9 +337,14 @@ class Attention(nn.Module):
             values = xv
 
         if self.use_xformers:
+            mask = None
+            if start_pos == 0:
+                mask = self.mask
+            elif seqlen > 1:
+                mask = mask
             output = self.xops.memory_efficient_attention(
-                xq, keys, values, 
-                attn_bias=self.mask if seqlen > 1 else None,
+                xq, keys, values,
+                attn_bias=mask,
                 op=self.xformers_op,
             )
         else:
