@@ -162,8 +162,9 @@ class Attention(nn.Module):
 
                 self.SCB_shape = (cache_shape_int8[0], cache_shape_int8[1], 1)
                 self.SCB_shape_dyn = (-1, cache_shape_int8[1], 1)
-                self.SCB_k = torch.zeros(self.SCB_shape, device='cuda')
-                self.SCB_v = torch.zeros(self.SCB_shape, device='cuda')
+                self.SCB_k = torch.zeros(self.SCB_shape, device='cuda', dtype=torch.float16)
+                self.SCB_v = torch.zeros(
+                    self.SCB_shape, device='cuda', dtype=torch.float16)
 
                 if self.quantize_cache_after_token > 0:
                     uses_fp16_cache = True
@@ -189,13 +190,17 @@ class Attention(nn.Module):
                     dtype=torch.int8,
                 ).cuda()
 
-    def forward(self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor]):
+    def forward(self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor],
+                force_quantize_qk=False,  # for benchmarks
+                ):
         if self.use_checkpoint:
-            return checkpoint(self._forward, x, start_pos, freqs_cis, mask)
-        return self._forward(x, start_pos, freqs_cis, mask)
+            return checkpoint(self._forward, x, start_pos, freqs_cis, mask, force_quantize_qk=force_quantize_qk)
+        return self._forward(x, start_pos, freqs_cis, mask, force_quantize_qk=force_quantize_qk)
 
 
-    def _forward(self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor]):
+    def _forward(self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor],
+                 force_quantize_qk=False, # for benchmarks
+                 ):
         bsz, seqlen, _ = x.shape
         xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
 
@@ -454,10 +459,12 @@ class TransformerBlock(nn.Module):
         
         self.use_checkpoint = use_checkpoint
 
-    def forward(self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor]):
+    def forward(self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor],
+                force_quantize_qk=False,
+                ):
         if self.use_checkpoint:
-            return checkpoint(self._forward, x, start_pos, freqs_cis, mask)
-        return self._forward(x, start_pos, freqs_cis, mask)
+            return checkpoint(self._forward, x, start_pos, freqs_cis, mask, force_quantize_qk=force_quantize_qk)
+        return self._forward(x, start_pos, freqs_cis, mask, force_quantize_qk=force_quantize_qk)
 
     def _forward(self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor]):
         h=x + self.attention.forward(self.attention_norm(x),
@@ -545,7 +552,9 @@ class Transformer(nn.Module):
         if self.freeze_layers_below_n > 0:
             self.tok_embeddings.requires_grad_(False)
 
-    def forward(self, tokens: torch.Tensor, start_pos: int):
+    def forward(self, tokens: torch.Tensor, start_pos: int, 
+                force_quantize_qk=False,  # for benchmarks
+                ):
         _bsz, seqlen = tokens.shape
         h = self.tok_embeddings(tokens)
         self.freqs_cis = self.freqs_cis.to(h.device)
@@ -561,7 +570,8 @@ class Transformer(nn.Module):
                 h = layer(h, start_pos, freqs_cis, mask)
             h.requires_grad_(True)
 
-            fwds = [partial(layer.forward, start_pos=start_pos, freqs_cis=freqs_cis, mask=mask)
+            fwds = [partial(layer.forward, start_pos=start_pos, freqs_cis=freqs_cis, mask=mask,
+                            force_quantize_qk=force_quantize_qk)
                     for layer in self.layers[self.freeze_layers_below_n:]]
 
             h = checkpoint_sequential(
@@ -570,7 +580,8 @@ class Transformer(nn.Module):
             )
         else:
             for layer in self.layers:
-                h = layer(h, start_pos, freqs_cis, mask)
+                h = layer(h, start_pos, freqs_cis, mask,
+                          force_quantize_qk=force_quantize_qk)
 
         h = self.norm(h)
         output = self.output(h)
