@@ -466,9 +466,11 @@ class TransformerBlock(nn.Module):
             return checkpoint(self._forward, x, start_pos, freqs_cis, mask, force_quantize_qk=force_quantize_qk)
         return self._forward(x, start_pos, freqs_cis, mask, force_quantize_qk=force_quantize_qk)
 
-    def _forward(self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor]):
+    def _forward(self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor],
+                 force_quantize_qk=False):
         h=x + self.attention.forward(self.attention_norm(x),
-                                     start_pos, freqs_cis, mask)
+                                     start_pos, freqs_cis, mask,
+                                     force_quantize_qk=force_quantize_qk)
         out=h + self.feed_forward.forward(self.ffn_norm(h))
         return out
 
