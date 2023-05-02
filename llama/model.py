@@ -483,7 +483,8 @@ class Transformer(nn.Module):
                  allow_quantize_unembed=True,
                  quantize_cache=False,
                  quantize_cache_above=0,
-                 quantize_cache_after_token=0,):
+                 quantize_cache_after_token=0,
+                 quantize_above=0,):
         super().__init__()
         self.params = params
         self.vocab_size = params.vocab_size
@@ -505,7 +506,7 @@ class Transformer(nn.Module):
             linear_kwargs = dict(
                 use_lora=use_lora and layer_id >= self.freeze_layers_below_n,
                 lora_kwargs=dict(r=lora_r, use_checkpoint=use_lora_checkpoint),
-                use_8bit=quantize_frozen and base_weights_frozen,
+                use_8bit=quantize_frozen and base_weights_frozen and layer_id >= quantize_above,
                 bnb_kwargs=dict(threshold=quantize_threshold),
                 device=linear_device,
             )
