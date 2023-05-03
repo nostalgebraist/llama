@@ -86,9 +86,11 @@ class LLaMA:
                                         debug=debug)
             temperature = 1.0
 
-        ranger = partial(trange, mininterval=0.25, miniters=1, smoothing=0.1) if progress_bar else range
+        ranger = range(start_pos, total_len)
+        if progress_bar:
+            ranger = trange(start_pos, total_len, mininterval = 0.25, miniters = 1, smoothing = 0.1)
 
-        for cur_pos in ranger(start_pos, total_len):
+        for cur_pos in ranger:
             if allow_xformers and (all_xformers or (cur_pos - prev_pos > 1)):
                 self.model.apply(xformers_on);
             else:
