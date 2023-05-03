@@ -43,6 +43,9 @@ class LLaMA:
         print_breakruns_stats=False,
         debug=False,
         progress_bar=True,
+        progress_bar_show_text=False,
+        progress_bar_show_text_n_tokens=10,
+        progress_bar_show_text_n_char=30,
         return_stop_reason=False,
         decode=True,
         extra_logits_processors=None,
@@ -83,7 +86,7 @@ class LLaMA:
                                         debug=debug)
             temperature = 1.0
 
-        ranger = partial(trange, mininterval=0.5, miniters=1, smoothing=0) if progress_bar else range
+        ranger = partial(trange, mininterval=0.25, miniters=1, smoothing=0.1) if progress_bar else range
 
         for cur_pos in ranger(start_pos, total_len):
             if allow_xformers and (all_xformers or (cur_pos - prev_pos > 1)):
@@ -116,6 +119,15 @@ class LLaMA:
             )
             self.tokens[:, cur_pos] = next_token
             prev_pos = cur_pos
+
+            if progress_bar and progress_bar_show_text and bsz == 1:
+                tokstr = self.tokenizer.decode(
+                    self.tokens[0, cur_pos - progress_bar_show_text_n_tokens + 1 : cur_pos + 1].tolist()
+                )
+                tokstr = tokstr[-progress_bar_show_text_n_char:]
+                tokstr = tokstr.rjust(progress_bar_show_text_n_char)
+                ranger.set_postfix(latest=tokstr, refresh=False)
+
             if stop_at_eos and bsz == 1 and (next_token == self.tokenizer.eos_id):
                 stop_reason = 'eos'
                 break
