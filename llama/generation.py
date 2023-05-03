@@ -122,18 +122,19 @@ class LLaMA:
             self.tokens[:, cur_pos] = next_token
             prev_pos = cur_pos
 
+            if stop_at_eos and bsz == 1 and (next_token == self.tokenizer.eos_id):
+                stop_reason = 'eos'
+                break
+
             if progress_bar and progress_bar_show_text and bsz == 1:
                 tokstr = self.tokenizer.decode(
-                    self.tokens[0, cur_pos - progress_bar_show_text_n_tokens + 1 : cur_pos + 1].tolist()
+                    self.tokens[0, cur_pos -
+                                progress_bar_show_text_n_tokens + 1: cur_pos + 1].tolist()
                 )
                 tokstr = tokstr[-progress_bar_show_text_n_char:]
                 tokstr = tokstr.rjust(progress_bar_show_text_n_char)
                 ranger.set_postfix(latest=tokstr, refresh=False)
 
-            if stop_at_eos and bsz == 1 and (next_token == self.tokenizer.eos_id):
-                stop_reason = 'eos'
-                break
-        
         if stop_reason is None:
             stop_reason = 'max_length'
 
