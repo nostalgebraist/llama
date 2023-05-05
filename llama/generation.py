@@ -131,6 +131,7 @@ class LLaMA:
                     self.tokens[0, cur_pos -
                                 progress_bar_show_text_n_tokens + 1: cur_pos + 1].tolist()
                 )
+                tokstr = tokstr.replace('\n', '\\n')
                 tokstr = tokstr[-progress_bar_show_text_n_char:]
                 tokstr = tokstr.rjust(progress_bar_show_text_n_char)
                 ranger.set_postfix(latest=tokstr, refresh=False)
