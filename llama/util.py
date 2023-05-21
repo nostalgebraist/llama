@@ -247,7 +247,6 @@ def make_linear(
         for k in ['has_fp16_weights', 'threshold']:
             if k in bnb_kwargs:
                 del bnb_kwargs[k]
-        print(bnb_kwargs)
         base = bnb.modules.Linear4bit(
             in_features, out_features, bias, **bnb_kwargs)
         if bnb_force_no_igemmlt:
