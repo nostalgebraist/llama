@@ -13,6 +13,8 @@ import bitsandbytes as bnb
 """
 monkeypatch Int8Params.cuda() to make it idempotent
 """
+
+
 def patched_cuda(self, device):
     if self.has_fp16_weights:
         return super(bitsandbytes.nn.modules.Int8Params, self).cuda(device)
@@ -37,6 +39,46 @@ def patched_cuda(self, device):
 bitsandbytes.nn.modules.Int8Params.cuda = patched_cuda
 
 
+def cuda4(self, device):
+    if self.quant_state is not None:
+        return self
+    w = self.data.contiguous().half().cuda(device)
+    w_4bit, quant_state = bnb.functional.quantize_4bit(
+        w, blocksize=self.blocksize, compress_statistics=self.compress_statistics, quant_type=self.quant_type)
+    self.data = w_4bit
+    self.quant_state = quant_state
+
+    return self
+
+
+bitsandbytes.nn.modules.Params4bit.cuda = cuda4
+
+
+def silent_forward(self, x: torch.Tensor):
+    # weights are cast automatically as Int8Params, but the bias has to be cast manually
+    if self.bias is not None and self.bias.dtype != x.dtype:
+        self.bias.data = self.bias.data.to(x.dtype)
+
+    if getattr(self.weight, 'quant_state', None) is None:
+        print('FP4 quantization state not initialized. Please call .cuda() or .to(device) on the LinearFP4 layer first.')
+    inp_dtype = x.dtype
+    if self.compute_dtype is not None:
+        x = x.to(self.compute_dtype)
+
+    bias = None if self.bias is None else self.bias.to(self.compute_dtype)
+    out = bnb.matmul_4bit(x, self.weight.t(), bias=bias,
+                            quant_state=self.weight.quant_state)
+
+    out = out.to(inp_dtype)
+    # # don't do next line
+    # print(self.weight.quant_state)
+
+    return out
+
+
+bitsandbytes.nn.modules.Linear4bit.forward = silent_forward
+
+
 # avoid overhead with 1 gpu
 def pre_call(device):
     return device
@@ -44,6 +86,7 @@ def pre_call(device):
 
 def post_call(prev_device):
     return
+
 
 bitsandbytes.functional.pre_call = pre_call
 bitsandbytes.functional.post_call = post_call
@@ -60,7 +103,6 @@ def vectorwise_quant(x, dim=1):
 def vectorwise_dequant(xq, max1, dtype):
     C = 127.0
     return (xq / C * max1).to(dtype=dtype)
-
 
 
 class HookedDict(dict):
@@ -137,15 +179,16 @@ class LoraWrapper(Wrapper):
 
     def merge_lora_into_base(self):
         if self.r <= 0:
-            return 
+            return
 
         assert hasattr(self.child, 'weight')
-        assert self.child.weight.shape == (self.child.out_features, self.child.in_features)
-        
+        assert self.child.weight.shape == (
+            self.child.out_features, self.child.in_features)
+
         with th.no_grad():
             patch = self.scaling * (self.lora_A @ self.lora_B).T
             self.child.weight.data = (
-                self.child.weight.data.to(dtype=patch.dtype, device=patch.device) + 
+                self.child.weight.data.to(dtype=patch.dtype, device=patch.device) +
                 patch
             ).to(dtype=self.child.weight.data.dtype, device=self.child.weight.data.device)
             del self.lora_A
@@ -154,7 +197,7 @@ class LoraWrapper(Wrapper):
 
     def _lora_down(self, x):
         return x.to(self.lora_A.dtype) @ self.lora_A
-    
+
     def _lora_up(self, y):
         return (self.scaling * y @ self.lora_B)
 
@@ -201,7 +244,11 @@ def make_linear(
         bnb_force_no_igemmlt = True
 
     if use_8bit:
-        base = bnb.modules.Linear8bitLt(
+        for k in ['has_fp16_weights', 'threshold']:
+            if k in bnb_kwargs:
+                del bnb_kwargs[k]
+        print(bnb_kwargs)
+        base = bnb.modules.Linear4bit(
             in_features, out_features, bias, **bnb_kwargs)
         if bnb_force_no_igemmlt:
             base.state.force_no_igemmlt = True
