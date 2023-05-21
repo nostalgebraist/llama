@@ -54,7 +54,7 @@ def cuda4(self, device):
 bitsandbytes.nn.modules.Params4bit.cuda = cuda4
 
 
-def silent_forward(self, x: torch.Tensor):
+def silent_forward(self, x: th.Tensor):
     # weights are cast automatically as Int8Params, but the bias has to be cast manually
     if self.bias is not None and self.bias.dtype != x.dtype:
         self.bias.data = self.bias.data.to(x.dtype)
