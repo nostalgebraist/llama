@@ -199,13 +199,6 @@ class Attention(nn.Module):
         bsz, seqlen, _ = x.shape
         xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
 
-        if not torch.isfinite(xq).any().item():
-            raise ValueError(f"{self.layernum} xq")
-        if not torch.isfinite(xk).any().item():
-            raise ValueError(f"{self.layernum} xk")
-        if not torch.isfinite(xv).any().item():
-            raise ValueError(f"{self.layernum} xv")
-
         xq = xq.view(bsz, seqlen, self.n_local_heads, self.head_dim)
         xk = xk.view(bsz, seqlen, self.n_local_heads, self.head_dim)
         xv = xv.view(bsz, seqlen, self.n_local_heads, self.head_dim)
@@ -357,8 +350,6 @@ class Attention(nn.Module):
                 attn_bias=xmask,
                 op=self.xformers_op,
             )
-            if not torch.isfinite(output).any().item():
-                raise ValueError(f"{self.layernum} attn op")
         else:
             xq = xq.transpose(1, 2)
             keys = keys.transpose(1, 2)
@@ -380,8 +371,6 @@ class Attention(nn.Module):
         output = output.view(bsz, seqlen, -1)
 
         out = self.wo(output)
-        if not torch.isfinite(out).any().item():
-            raise ValueError(f"{self.layernum} xo")
         return out
 
 class FeedForward(nn.Module):
@@ -430,11 +419,7 @@ class FeedForward(nn.Module):
         return self._silu_mm(y, x)
 
     def _forward(self, x):
-        out = self.w2(self.silu_mm(self.w1(x), x))
-        if not torch.isfinite(out).any().item():
-            raise ValueError(f"{self.layernum} ff")
-        return out
-        # return self.w2(F.silu(self.w1(x)) * self.w3(x))
+        return self.w2(F.silu(self.w1(x)) * self.w3(x))
 
 
 class TransformerBlock(nn.Module):
