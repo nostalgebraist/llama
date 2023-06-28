@@ -191,15 +191,13 @@ class Attention(nn.Module):
                 ).cuda()
 
     def forward(self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor],
-                force_quantize_qk=False,  # for benchmarks
                 ):
         if self.use_checkpoint:
-            return checkpoint(self._forward, x, start_pos, freqs_cis, mask, force_quantize_qk=force_quantize_qk)
-        return self._forward(x, start_pos, freqs_cis, mask, force_quantize_qk=force_quantize_qk)
+            return checkpoint(self._forward, x, start_pos, freqs_cis, mask, )
+        return self._forward(x, start_pos, freqs_cis, mask, )
 
 
     def _forward(self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor],
-                 force_quantize_qk=False, # for benchmarks
                  ):
         bsz, seqlen, _ = x.shape
         xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
@@ -460,17 +458,16 @@ class TransformerBlock(nn.Module):
         self.use_checkpoint = use_checkpoint
 
     def forward(self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor],
-                force_quantize_qk=False,
                 ):
         if self.use_checkpoint:
-            return checkpoint(self._forward, x, start_pos, freqs_cis, mask, force_quantize_qk=force_quantize_qk)
-        return self._forward(x, start_pos, freqs_cis, mask, force_quantize_qk=force_quantize_qk)
+            return checkpoint(self._forward, x, start_pos, freqs_cis, mask, )
+        return self._forward(x, start_pos, freqs_cis, mask, )
 
     def _forward(self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor],
-                 force_quantize_qk=False):
+                 ):
         h=x + self.attention.forward(self.attention_norm(x),
                                      start_pos, freqs_cis, mask,
-                                     force_quantize_qk=force_quantize_qk)
+                                     )
         out=h + self.feed_forward.forward(self.ffn_norm(h))
         return out
 
@@ -555,7 +552,6 @@ class Transformer(nn.Module):
             self.tok_embeddings.requires_grad_(False)
 
     def forward(self, tokens: torch.Tensor, start_pos: int, 
-                force_quantize_qk=False,  # for benchmarks
                 ):
         _bsz, seqlen = tokens.shape
         h = self.tok_embeddings(tokens)
@@ -573,7 +569,7 @@ class Transformer(nn.Module):
             h.requires_grad_(True)
 
             fwds = [partial(layer.forward, start_pos=start_pos, freqs_cis=freqs_cis, mask=mask,
-                            force_quantize_qk=force_quantize_qk)
+                            )
                     for layer in self.layers[self.freeze_layers_below_n:]]
 
             h = checkpoint_sequential(
@@ -583,7 +579,7 @@ class Transformer(nn.Module):
         else:
             for layer in self.layers:
                 h = layer(h, start_pos, freqs_cis, mask,
-                          force_quantize_qk=force_quantize_qk)
+                          )
 
         h = self.norm(h)
         output = self.output(h)
