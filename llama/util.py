@@ -226,7 +226,6 @@ def make_linear(
     lora_kwargs=None,
     bnb_kwargs=None,
     bnb_has_fp16_weights=False,
-    bnb_force_no_igemmlt=False,
     device=None,
 ):
     lora_kwargs = lora_kwargs or {}
@@ -240,17 +239,12 @@ def make_linear(
     if use_lora:
         assert 'r' in lora_kwargs
 
-    if use_lora:
-        bnb_force_no_igemmlt = True
-
     if use_8bit:
         for k in ['has_fp16_weights', 'threshold']:
             if k in bnb_kwargs:
                 del bnb_kwargs[k]
         base = bnb.modules.Linear4bit(
             in_features, out_features, bias, **bnb_kwargs)
-        if bnb_force_no_igemmlt:
-            base.state.force_no_igemmlt = True
     else:
         base = nn.Linear(in_features, out_features, bias, **linear_kwargs)
 
