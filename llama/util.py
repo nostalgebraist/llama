@@ -244,7 +244,7 @@ def make_linear(
             if k in bnb_kwargs:
                 del bnb_kwargs[k]
         base = bnb.modules.Linear4bit(
-            in_features, out_features, bias, **bnb_kwargs)
+            in_features, out_features, bias, quant_type='nf4', **bnb_kwargs)
     else:
         base = nn.Linear(in_features, out_features, bias, **linear_kwargs)
 
