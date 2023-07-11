@@ -162,8 +162,9 @@ class Attention(nn.Module):
 
                 self.SCB_shape = (cache_shape_int8[0], cache_shape_int8[1], 1)
                 self.SCB_shape_dyn = (-1, cache_shape_int8[1], 1)
-                self.SCB_k = torch.zeros(self.SCB_shape, device='cuda')
-                self.SCB_v = torch.zeros(self.SCB_shape, device='cuda')
+                self.SCB_k = torch.zeros(self.SCB_shape, device='cuda', dtype=torch.float16)
+                self.SCB_v = torch.zeros(
+                    self.SCB_shape, device='cuda', dtype=torch.float16)
 
                 if self.quantize_cache_after_token > 0:
                     uses_fp16_cache = True
@@ -189,13 +190,15 @@ class Attention(nn.Module):
                     dtype=torch.int8,
                 ).cuda()
 
-    def forward(self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor]):
+    def forward(self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor],
+                ):
         if self.use_checkpoint:
-            return checkpoint(self._forward, x, start_pos, freqs_cis, mask)
-        return self._forward(x, start_pos, freqs_cis, mask)
+            return checkpoint(self._forward, x, start_pos, freqs_cis, mask, )
+        return self._forward(x, start_pos, freqs_cis, mask, )
 
 
-    def _forward(self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor]):
+    def _forward(self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor],
+                 ):
         bsz, seqlen, _ = x.shape
         xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
 
@@ -454,14 +457,17 @@ class TransformerBlock(nn.Module):
         
         self.use_checkpoint = use_checkpoint
 
-    def forward(self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor]):
+    def forward(self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor],
+                ):
         if self.use_checkpoint:
-            return checkpoint(self._forward, x, start_pos, freqs_cis, mask)
-        return self._forward(x, start_pos, freqs_cis, mask)
+            return checkpoint(self._forward, x, start_pos, freqs_cis, mask, )
+        return self._forward(x, start_pos, freqs_cis, mask, )
 
-    def _forward(self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor]):
+    def _forward(self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor],
+                 ):
         h=x + self.attention.forward(self.attention_norm(x),
-                                     start_pos, freqs_cis, mask)
+                                     start_pos, freqs_cis, mask,
+                                     )
         out=h + self.feed_forward.forward(self.ffn_norm(h))
         return out
 
@@ -478,6 +484,7 @@ class Transformer(nn.Module):
                  use_lora=True, 
                  use_lora_checkpoint=False,
                  lora_r=16,
+                 lora_alpha=1,
                  linear_device=None,
                  fp32_logits=True,
                  allow_quantize_unembed=True,
@@ -526,7 +533,7 @@ class Transformer(nn.Module):
         
         linear_kwargs = dict(
             use_lora=use_lora,
-            lora_kwargs=dict(r=lora_r, use_checkpoint=use_lora_checkpoint),
+            lora_kwargs=dict(r=lora_r, lora_alpha=lora_alpha, use_checkpoint=use_lora_checkpoint),
             use_8bit=quantize_frozen and use_lora and allow_quantize_unembed,
             bnb_kwargs=dict(threshold=quantize_threshold),
         )
@@ -546,7 +553,8 @@ class Transformer(nn.Module):
         if self.freeze_layers_below_n > 0:
             self.tok_embeddings.requires_grad_(False)
 
-    def forward(self, tokens: torch.Tensor, start_pos: int):
+    def forward(self, tokens: torch.Tensor, start_pos: int, 
+                ):
         _bsz, seqlen = tokens.shape
         h = self.tok_embeddings(tokens)
         self.freqs_cis = self.freqs_cis.to(h.device)
@@ -562,7 +570,8 @@ class Transformer(nn.Module):
                 h = layer(h, start_pos, freqs_cis, mask)
             h.requires_grad_(True)
 
-            fwds = [partial(layer.forward, start_pos=start_pos, freqs_cis=freqs_cis, mask=mask)
+            fwds = [partial(layer.forward, start_pos=start_pos, freqs_cis=freqs_cis, mask=mask,
+                            )
                     for layer in self.layers[self.freeze_layers_below_n:]]
 
             h = checkpoint_sequential(
