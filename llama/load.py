@@ -12,11 +12,13 @@ from pathlib import Path
 from llama import ModelArgs, Transformer, Tokenizer, LLaMA
 
 
-def load_state_dict_meta(module, sd, device_param_copy, device_mod, delete_after=True):
+def load_state_dict_meta(module, sd, device_param_copy, device_mod, lora_checkpoint=None, delete_after=True):
     outs = {'unexpected_keys': []}
     
     sd_keys = sorted(sd.keys())
     not_loaded_keys = set(sd_keys)
+
+    has_lora_checkpoint = lora_checkpoint is not None
 
     with torch.no_grad():
         for tensor_name in sd_keys:
@@ -45,7 +47,7 @@ def load_state_dict_meta(module, sd, device_param_copy, device_mod, delete_after
                 submod_name, _, submod_tensor_name = tensor_name.rpartition(
                     '.')
 
-                # print(f"loading {tensor_name} to {submod_name}")
+                print(f"loading {tensor_name} to {submod_name}")
 
                 module.get_submodule(
                     submod_name)._parameters[submod_tensor_name] = new_value
@@ -53,7 +55,15 @@ def load_state_dict_meta(module, sd, device_param_copy, device_mod, delete_after
                 ready_to_transfer = not any(
                     k.startswith(submod_name + '.') for k in not_loaded_keys)
                 if ready_to_transfer:
-                    # print(f"transferring {submod_name} to {device_mod}")
+                    print(f"transferring {submod_name} to {device_mod}")
+                    if has_lora_checkpoint:
+                        attached = {k for k in lora_checkpoint if submod_name in k}
+                        for k in attached:
+                            k_submod_name, _, k_submod_tensor_name = k.rpartition(
+                                '.')
+                            print(f"loading {k} to {k_submod_name}")
+                            module.get_submodule(k).load_state_dict(
+                                {k_submod_tensor_name: lora_checkpoint[k]})
                     module.get_submodule(submod_name).to(device=device_mod)
                 else:
                     pass
@@ -78,6 +88,7 @@ def load(ckpt_dir: str, tokenizer_path: str, local_rank: int, world_size: int, n
          lowmem_cpu_ratio=1,
          fp32_logits=True,
          checkpoint=None,
+         lora_checkpoint=None,
          **kwargs,
          ) -> LLaMA:
     start_time = time.time()
@@ -129,8 +140,12 @@ def load(ckpt_dir: str, tokenizer_path: str, local_rank: int, world_size: int, n
     if not checkpoint:
         checkpoint = torch.load(ckpt_path, map_location=maploc if (lowmem and not quantize_frozen) else "cpu")
 
+    if isinstance(lora_checkpoint, str):
+        lora_checkpoint = torch.load(lora_checkpoint, map_location=maploc if (lowmem and not quantize_frozen) else "cpu")
+
     if lowmem:
-        outs = load_state_dict_meta(model, checkpoint, 'cpu', 'cuda:0')
+        outs = load_state_dict_meta(
+            model, checkpoint, 'cpu', 'cuda:0', lora_checkpoint)
     else:
         outs = model.load_state_dict(checkpoint, strict=False)
 
