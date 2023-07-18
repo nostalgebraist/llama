@@ -89,6 +89,7 @@ def load(ckpt_dir: str, tokenizer_path: str, local_rank: int, world_size: int, n
          fp32_logits=True,
          checkpoint=None,
          lora_checkpoint=None,
+         bf16=False,
          **kwargs,
          ) -> LLaMA:
     start_time = time.time()
@@ -115,12 +116,11 @@ def load(ckpt_dir: str, tokenizer_path: str, local_rank: int, world_size: int, n
     model_args: ModelArgs = ModelArgs(max_seq_len=n_ctx, max_batch_size=max_batch_size, **params)
     tokenizer = Tokenizer(model_path=tokenizer_path)
     model_args.vocab_size = tokenizer.n_words
-    torch.set_default_tensor_type(
-        torch.HalfTensor 
-        if True # quantize_frozen 
-        else torch.cuda.HalfTensor
-    )
-    model = Transformer(model_args, 
+    if bf16:
+        torch.set_default_tensor_type(torch.BFloat16Tensor)
+    else:
+        torch.set_default_tensor_type(torch.HalfTensor)
+    model = Transformer(model_args,
                         use_cache=use_cache,
                         use_xformers=use_xformers,
                         freeze_layers_below_n=freeze_layers_below_n,
