@@ -491,7 +491,9 @@ class Transformer(nn.Module):
                  quantize_cache=False,
                  quantize_cache_above=0,
                  quantize_cache_after_token=0,
-                 quantize_above=0,):
+                 quantize_above=0,
+                 bnb_kwargs=None,
+                 ):
         super().__init__()
         self.params = params
         self.vocab_size = params.vocab_size
@@ -500,6 +502,7 @@ class Transformer(nn.Module):
         self.use_checkpoint = use_checkpoint
         self.n_checkpoint_segments = n_checkpoint_segments
         self.fp32_logits = fp32_logits
+        bnb_kwargs = bnb_kwargs or {}
 
         self.tok_embeddings = nn.Embedding(
             params.vocab_size, params.dim, 
@@ -514,7 +517,7 @@ class Transformer(nn.Module):
                 use_lora=use_lora and layer_id >= self.freeze_layers_below_n,
                 lora_kwargs=dict(r=lora_r, use_checkpoint=use_lora_checkpoint),
                 use_8bit=quantize_frozen and base_weights_frozen and layer_id >= quantize_above,
-                bnb_kwargs=dict(threshold=quantize_threshold),
+                bnb_kwargs=dict(threshold=quantize_threshold) | bnb_kwargs,
                 device=linear_device,
             )
             def make_layer(): return TransformerBlock(
