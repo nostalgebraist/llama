@@ -495,6 +495,7 @@ class Transformer(nn.Module):
                  quantize_cache_after_token=0,
                  quantize_above=0,
                  bnb_kwargs=None,
+                 lora_autocast=True,
                  ):
         super().__init__()
         self.params = params
@@ -520,6 +521,7 @@ class Transformer(nn.Module):
                 lora_kwargs=dict(r=lora_r, use_checkpoint=use_lora_checkpoint),
                 use_8bit=quantize_frozen and base_weights_frozen and layer_id >= quantize_above,
                 bnb_kwargs=dict(threshold=quantize_threshold) | bnb_kwargs,
+                autocast=lora_autocast,
                 device=linear_device,
             )
             def make_layer(): return TransformerBlock(

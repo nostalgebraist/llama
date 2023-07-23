@@ -149,6 +149,7 @@ class LoraWrapper(Wrapper):
                  r: int,
                  lora_alpha=1,
                  use_checkpoint=False,
+                 autocast=False,
                  ):
         super().__init__(child)
         assert hasattr(self.child, 'in_features')
@@ -158,6 +159,7 @@ class LoraWrapper(Wrapper):
         self.lora_alpha = lora_alpha
         self.use_checkpoint = use_checkpoint
         self.scaling = self.lora_alpha / max(1, self.r)
+        self.autocast = autocast
 
         if self.r > 0:
             self.lora_A = nn.Parameter(
@@ -196,9 +198,15 @@ class LoraWrapper(Wrapper):
             self.r = 0
 
     def _lora_down(self, x):
+        if self.autocast:
+            with th.cuda.amp.autocast(enabled=True, dtype=x.dtype):
+                return x @ self.lora_A
         return x.to(self.lora_A.dtype) @ self.lora_A
 
     def _lora_up(self, y):
+        if self.autocast:
+            with th.cuda.amp.autocast(enabled=True, dtype=y.dtype):
+                return (self.scaling * y @ self.lora_B)
         return (self.scaling * y @ self.lora_B)
 
     def forward(self, x):
