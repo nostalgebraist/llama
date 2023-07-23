@@ -518,10 +518,9 @@ class Transformer(nn.Module):
             
             linear_kwargs = dict(
                 use_lora=use_lora and layer_id >= self.freeze_layers_below_n,
-                lora_kwargs=dict(r=lora_r, use_checkpoint=use_lora_checkpoint),
+                lora_kwargs=dict(r=lora_r, use_checkpoint=use_lora_checkpoint, autocast=lora_autocast),
                 use_8bit=quantize_frozen and base_weights_frozen and layer_id >= quantize_above,
                 bnb_kwargs=dict(threshold=quantize_threshold) | bnb_kwargs,
-                autocast=lora_autocast,
                 device=linear_device,
             )
             def make_layer(): return TransformerBlock(
