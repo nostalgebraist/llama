@@ -20,8 +20,10 @@ class ModelArgs:
     dim: int = 512
     n_layers: int = 8
     n_heads: int = 8
+    n_kv_heads: Optional[int] = None
     vocab_size: int = -1  # defined later by tokenizer
     multiple_of: int = 256  # make SwiGLU hidden layer size multiple of large power of 2
+    ffn_dim_multiplier: Optional[float] = None
     norm_eps: float = 1e-5
 
     max_batch_size: int = 32
@@ -71,6 +73,18 @@ def apply_rotary_emb(
     return xq_out.type_as(xq), xk_out.type_as(xk)
 
 
+def repeat_kv(x: torch.Tensor, n_rep: int) -> torch.Tensor:
+    """torch.repeat_interleave(x, dim=2, repeats=n_rep)"""
+    bs, slen, n_kv_heads, head_dim = x.shape
+    if n_rep == 1:
+        return x
+    return (
+        x[:, :, :, None, :]
+        .expand(bs, slen, n_kv_heads, n_rep, head_dim)
+        .reshape(bs, slen, n_kv_heads * n_rep, head_dim)
+    )
+
+
 class Attention(nn.Module):
     def __init__(self, args: ModelArgs, 
                  use_cache=False, 
@@ -86,7 +100,12 @@ class Attention(nn.Module):
 
         linear_kwargs = linear_kwargs or {}
 
+        self.n_kv_heads = args.n_heads if args.n_kv_heads is None else args.n_kv_heads
+
         self.n_local_heads = args.n_heads // 1
+        self.n_local_kv_heads = self.n_kv_heads // 1
+        self.n_rep = self.n_local_heads // self.n_local_kv_heads
+
         self.head_dim = args.dim // args.n_heads
 
         self.wq = make_linear(
@@ -97,13 +116,13 @@ class Attention(nn.Module):
         )
         self.wv = make_linear(
             args.dim,
-            args.n_heads * self.head_dim,
+            self.n_kv_heads * self.head_dim,
             bias=False,
             **linear_kwargs,
         )
         self.wk = make_linear(
             args.dim,
-            args.n_heads * self.head_dim,
+            self.n_kv_heads * self.head_dim,
             bias=False,
             **linear_kwargs,
         )
@@ -143,11 +162,11 @@ class Attention(nn.Module):
             cache_shape_fp16 = (
                 args.max_batch_size, 
                 cache_len_fp16,
-                self.n_local_heads,
+                self.n_kv_heads,
                 self.head_dim,
             )
             cache_shape_int8 = (
-                self.n_local_heads,
+                self.n_kv_heads,
                 self.head_dim,
                 cache_len_int8,
             )
@@ -202,9 +221,9 @@ class Attention(nn.Module):
         bsz, seqlen, _ = x.shape
         xq, xk, xv = self.wq(x), self.wk(x), self.wv(x)
 
-        xq = xq.view(bsz, seqlen, self.n_local_heads, self.head_dim)
-        xk = xk.view(bsz, seqlen, self.n_local_heads, self.head_dim)
-        xv = xv.view(bsz, seqlen, self.n_local_heads, self.head_dim)
+        xq = xq.view(bsz, seqlen, self.n_kv_heads, self.head_dim)
+        xk = xk.view(bsz, seqlen, self.n_kv_heads, self.head_dim)
+        xv = xv.view(bsz, seqlen, self.n_kv_heads, self.head_dim)
 
         if self.use_checkpoint_activations:
             xq, xk = checkpoint(apply_rotary_emb, xq, xk, freqs_cis)
@@ -338,6 +357,10 @@ class Attention(nn.Module):
         else:
             keys = xk
             values = xv
+        
+        # repeat k/v heads if n_kv_heads < n_heads
+        keys = repeat_kv(keys, self.n_rep)  # (bs, seqlen, n_local_heads, head_dim)
+        values = repeat_kv(values, self.n_rep)  # (bs, seqlen, n_local_heads, head_dim)
 
         if self.use_xformers:
             xmask = None
@@ -382,12 +405,16 @@ class FeedForward(nn.Module):
         dim: int,
         hidden_dim: int,
         multiple_of: int,
+        ffn_dim_multiplier: Optional[float],
         use_checkpoint=False,
         use_checkpoint_activations=True,
         linear_kwargs=None,
     ):
         super().__init__()
         hidden_dim = int(2 * hidden_dim / 3)
+        # custom dim factor multiplier
+        if ffn_dim_multiplier is not None:
+            hidden_dim = int(ffn_dim_multiplier * hidden_dim)
         hidden_dim = multiple_of * ((hidden_dim + multiple_of - 1) // multiple_of)
 
         linear_kwargs = linear_kwargs or {}
@@ -447,6 +474,7 @@ class TransformerBlock(nn.Module):
                                    )
         self.feed_forward = FeedForward(
             dim=args.dim, hidden_dim=4 * args.dim, multiple_of=args.multiple_of,
+            ffn_dim_multiplier=args.ffn_dim_multiplier,
             use_checkpoint=False,
             use_checkpoint_activations=use_checkpoint_activations,
             linear_kwargs=linear_kwargs,
