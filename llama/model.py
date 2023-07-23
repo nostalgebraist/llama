@@ -23,6 +23,7 @@ class ModelArgs:
     vocab_size: int = -1  # defined later by tokenizer
     multiple_of: int = 256  # make SwiGLU hidden layer size multiple of large power of 2
     norm_eps: float = 1e-5
+    rope_scaling_factor: float = 1.0
 
     max_batch_size: int = 32
     max_seq_len: int = 1024
