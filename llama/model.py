@@ -495,7 +495,7 @@ class Transformer(nn.Module):
                  quantize_cache_after_token=0,
                  quantize_above=0,
                  bnb_kwargs=None,
-                 lora_autocast=True,
+                 lora_autocast=False,
                  ):
         super().__init__()
         self.params = params
