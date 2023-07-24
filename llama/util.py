@@ -37,7 +37,7 @@ def patched_cuda(self, device):
 
 orig_bnb_Int8Params_cuda = bitsandbytes.nn.modules.Int8Params.cuda
 
-bitsandbytes.nn.modules.Int8Params.cuda = patched_cuda
+# bitsandbytes.nn.modules.Int8Params.cuda = patched_cuda
 
 
 def cuda4(self, device):
@@ -53,7 +53,7 @@ def cuda4(self, device):
 
 orig_bnb_Params4bit_cuda = bitsandbytes.nn.modules.Params4bit.cuda
 
-bitsandbytes.nn.modules.Params4bit.cuda = cuda4
+# bitsandbytes.nn.modules.Params4bit.cuda = cuda4
 
 
 def silent_forward(self, x: th.Tensor):
@@ -79,7 +79,7 @@ def silent_forward(self, x: th.Tensor):
 
 orig_bnb_Linear4bit_forward = bitsandbytes.nn.modules.Linear4bit.forward
 
-bitsandbytes.nn.modules.Linear4bit.forward = silent_forward
+# bitsandbytes.nn.modules.Linear4bit.forward = silent_forward
 
 
 # avoid overhead with 1 gpu
@@ -91,8 +91,8 @@ def post_call(prev_device):
     return
 
 
-bitsandbytes.functional.pre_call = pre_call
-bitsandbytes.functional.post_call = post_call
+# bitsandbytes.functional.pre_call = pre_call
+# bitsandbytes.functional.post_call = post_call
 
 
 def vectorwise_quant(x, dim=1):
