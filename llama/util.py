@@ -35,6 +35,7 @@ def patched_cuda(self, device):
 
     return self
 
+orig_bnb_Int8Params_cuda = bitsandbytes.nn.modules.Int8Params.cuda
 
 bitsandbytes.nn.modules.Int8Params.cuda = patched_cuda
 
@@ -50,6 +51,7 @@ def cuda4(self, device):
 
     return self
 
+orig_bnb_Params4bit_cuda = bitsandbytes.nn.modules.Params4bit.cuda
 
 bitsandbytes.nn.modules.Params4bit.cuda = cuda4
 
@@ -75,6 +77,7 @@ def silent_forward(self, x: th.Tensor):
 
     return out
 
+orig_bnb_Linear4bit_forward = bitsandbytes.nn.modules.Linear4bit.forward
 
 bitsandbytes.nn.modules.Linear4bit.forward = silent_forward
 
