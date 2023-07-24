@@ -90,6 +90,7 @@ def load(ckpt_dir: str, tokenizer_path: str, local_rank: int, world_size: int, n
          checkpoint=None,
          lora_checkpoint=None,
          bf16=False,
+         rope_scaling_factor=1.0,
          **kwargs,
          ) -> LLaMA:
     start_time = time.time()
@@ -113,7 +114,7 @@ def load(ckpt_dir: str, tokenizer_path: str, local_rank: int, world_size: int, n
     with open(Path(ckpt_dir) / "params.json", "r") as f:
         params = json.loads(f.read())
 
-    model_args: ModelArgs = ModelArgs(max_seq_len=n_ctx, max_batch_size=max_batch_size, **params)
+    model_args: ModelArgs = ModelArgs(max_seq_len=n_ctx, max_batch_size=max_batch_size, rope_scaling_factor=rope_scaling_factor, **params)
     tokenizer = Tokenizer(model_path=tokenizer_path)
     model_args.vocab_size = tokenizer.n_words
     if bf16:

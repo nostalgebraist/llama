@@ -25,6 +25,7 @@ class ModelArgs:
     multiple_of: int = 256  # make SwiGLU hidden layer size multiple of large power of 2
     ffn_dim_multiplier: Optional[float] = None
     norm_eps: float = 1e-5
+    rope_scaling_factor: float = 1.0
 
     max_batch_size: int = 32
     max_seq_len: int = 1024
@@ -44,9 +45,10 @@ class RMSNorm(torch.nn.Module):
         return output * self.weight
 
 
-def precompute_freqs_cis(dim: int, end: int, theta: float = 10000.0):
+def precompute_freqs_cis(dim: int, end: int, theta: float = 10000.0, scaling_factor=1.0):
     freqs = 1.0 / (theta ** (torch.arange(0, dim, 2)[: (dim // 2)].float() / dim))
-    t = torch.arange(end, device=freqs.device)  # type: ignore
+    t = torch.arange(end, device=freqs.device, dtype=freqs.dtype)  # type: ignore
+    t = t / scaling_factor
     freqs = torch.outer(t, freqs).float()  # type: ignore
     freqs_cis = torch.polar(torch.ones_like(freqs), freqs)  # complex64
     return freqs_cis
@@ -521,6 +523,7 @@ class Transformer(nn.Module):
                  quantize_cache_after_token=0,
                  quantize_above=0,
                  bnb_kwargs=None,
+                 lora_autocast=True,
                  ):
         super().__init__()
         self.params = params
@@ -543,7 +546,7 @@ class Transformer(nn.Module):
             
             linear_kwargs = dict(
                 use_lora=use_lora and layer_id >= self.freeze_layers_below_n,
-                lora_kwargs=dict(r=lora_r, use_checkpoint=use_lora_checkpoint),
+                lora_kwargs=dict(r=lora_r, use_checkpoint=use_lora_checkpoint, autocast=lora_autocast),
                 use_8bit=quantize_frozen and base_weights_frozen and layer_id >= quantize_above,
                 bnb_kwargs=dict(threshold=quantize_threshold) | bnb_kwargs,
                 device=linear_device,
@@ -574,7 +577,8 @@ class Transformer(nn.Module):
         )
 
         self.freqs_cis = precompute_freqs_cis(
-            self.params.dim // self.params.n_heads, self.params.max_seq_len * 2
+            self.params.dim // self.params.n_heads, self.params.max_seq_len * 2,
+            scaling_factor=self.params.rope_scaling_factor
         )
         self.use_xformers = use_xformers
 

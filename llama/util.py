@@ -35,6 +35,7 @@ def patched_cuda(self, device):
 
     return self
 
+orig_bnb_Int8Params_cuda = bitsandbytes.nn.modules.Int8Params.cuda
 
 bitsandbytes.nn.modules.Int8Params.cuda = patched_cuda
 
@@ -50,6 +51,7 @@ def cuda4(self, device):
 
     return self
 
+orig_bnb_Params4bit_cuda = bitsandbytes.nn.modules.Params4bit.cuda
 
 bitsandbytes.nn.modules.Params4bit.cuda = cuda4
 
@@ -75,6 +77,7 @@ def silent_forward(self, x: th.Tensor):
 
     return out
 
+orig_bnb_Linear4bit_forward = bitsandbytes.nn.modules.Linear4bit.forward
 
 bitsandbytes.nn.modules.Linear4bit.forward = silent_forward
 
@@ -149,6 +152,7 @@ class LoraWrapper(Wrapper):
                  r: int,
                  lora_alpha=1,
                  use_checkpoint=False,
+                 autocast=False,
                  ):
         super().__init__(child)
         assert hasattr(self.child, 'in_features')
@@ -158,6 +162,7 @@ class LoraWrapper(Wrapper):
         self.lora_alpha = lora_alpha
         self.use_checkpoint = use_checkpoint
         self.scaling = self.lora_alpha / max(1, self.r)
+        self.autocast = autocast
 
         if self.r > 0:
             self.lora_A = nn.Parameter(
@@ -196,9 +201,15 @@ class LoraWrapper(Wrapper):
             self.r = 0
 
     def _lora_down(self, x):
+        if self.autocast:
+            with th.cuda.amp.autocast(enabled=True, dtype=x.dtype):
+                return x @ self.lora_A
         return x.to(self.lora_A.dtype) @ self.lora_A
 
     def _lora_up(self, y):
+        if self.autocast:
+            with th.cuda.amp.autocast(enabled=True, dtype=y.dtype):
+                return (self.scaling * y @ self.lora_B)
         return (self.scaling * y @ self.lora_B)
 
     def forward(self, x):
