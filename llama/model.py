@@ -550,7 +550,7 @@ class Transformer(nn.Module):
 
         self.freqs_cis = precompute_freqs_cis(
             self.params.dim // self.params.n_heads, self.params.max_seq_len * 2,
-            self.params.rope_scaling_factor
+            scaling_factor=self.params.rope_scaling_factor
         )
         self.use_xformers = use_xformers
 
