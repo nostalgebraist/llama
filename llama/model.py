@@ -26,6 +26,7 @@ class ModelArgs:
     ffn_dim_multiplier: Optional[float] = None
     norm_eps: float = 1e-5
     rope_scaling_factor: float = 1.0
+    rope_theta: float = 10000.0
 
     max_batch_size: int = 32
     max_seq_len: int = 1024
@@ -578,7 +579,8 @@ class Transformer(nn.Module):
 
         self.freqs_cis = precompute_freqs_cis(
             self.params.dim // self.params.n_heads, self.params.max_seq_len * 2,
-            scaling_factor=self.params.rope_scaling_factor
+            scaling_factor=self.params.rope_scaling_factor,
+            theta=self.params.rope_theta
         )
         self.use_xformers = use_xformers
 
