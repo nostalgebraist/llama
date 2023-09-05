@@ -64,6 +64,7 @@ def load_state_dict_meta(module, sd, device_param_copy, device_mod, lora_checkpo
                             print(f"loading {k} to {k_submod_name}")
                             module.get_submodule(k).load_state_dict(
                                 {k_submod_tensor_name: lora_checkpoint[k]})
+                        module.get_submodule(submod_name).merge_lora_into_base()
                     module.get_submodule(submod_name).to(device=device_mod)
                 else:
                     pass
