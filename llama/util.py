@@ -153,6 +153,7 @@ class LoraWrapper(Wrapper):
                  lora_alpha=1,
                  use_checkpoint=False,
                  autocast=False,
+                 lora_dropout=0.,
                  ):
         super().__init__(child)
         assert hasattr(self.child, 'in_features')
@@ -170,6 +171,11 @@ class LoraWrapper(Wrapper):
             self.lora_B = nn.Parameter(
                 self.weight.new_zeros((r, self.child.out_features)))
             self.child.requires_grad_(False)
+
+            if lora_dropout > 0:
+                self.dropout = nn.Dropout(p=lora_dropout)
+            else:
+                self.dropout = nn.Identity()
 
         self.reset_lora_parameters()
 
@@ -219,15 +225,15 @@ class LoraWrapper(Wrapper):
             out = self.child(x)
         if self.r > 0:
             if self.use_checkpoint:
-                y = self._lora_down(x)
+                y = self._lora_down(self.dropout(x))
                 delta = checkpoint(self._lora_up, y).to(out.dtype)
             else:
-                delta = self._lora_up(self._lora_down(x)).to(out.dtype)
+                delta = self._lora_up(self._lora_down(self.dropout(x))).to(out.dtype)
             out = out + delta
         return out
 
     def extra_repr(self):
-        return f'child={self.child}, r={self.r}'
+        return f'child={self.child}, r={self.r}, dropout={self.dropout.p}'
 
 
 def make_linear(
