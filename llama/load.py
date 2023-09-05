@@ -20,13 +20,20 @@ def load_state_dict_meta(module, sd, device_param_copy, device_mod, lora_checkpo
 
     has_lora_checkpoint = lora_checkpoint is not None
 
+    lora_keys = []
+    if has_lora_checkpoint:
+        lora_keys = sorted(lora_checkpoint.keys())
+        sd_keys = sorted(sd_keys + lora_keys)
+        not_loaded_keys = set(sd_keys)
+
     with torch.no_grad():
         for tensor_name in sd_keys:
             # print(f"loading {tensor_name}")
-            new_value = sd[tensor_name]
+            src = lora_checkpoint if 'lora_' in tensor_name else sd
+            new_value = src[tensor_name]
             not_loaded_keys.remove(tensor_name)
             if delete_after:
-                del sd[tensor_name]
+                del src[tensor_name]
                 gc.collect()
 
             is_buffer = tensor_name in module._buffers
@@ -54,16 +61,10 @@ def load_state_dict_meta(module, sd, device_param_copy, device_mod, lora_checkpo
 
                 ready_to_transfer = not any(
                     k.startswith(submod_name + '.') for k in not_loaded_keys)
+
                 if ready_to_transfer:
                     print(f"transferring {submod_name} to {device_mod}")
-                    if has_lora_checkpoint:
-                        attached = {k for k in lora_checkpoint if submod_name in k}
-                        for k in attached:
-                            k_submod_name, _, k_submod_tensor_name = k.rpartition(
-                                '.')
-                            print(f"loading {k} to {k_submod_name}")
-                            module.get_submodule(k).load_state_dict(
-                                {k_submod_tensor_name: lora_checkpoint[k]})
+                    if has_lora_checkpoint and hasattr(module.get_submodule(submod_name), 'merge_lora_into_base'):
                         module.get_submodule(submod_name).merge_lora_into_base()
                     module.get_submodule(submod_name).to(device=device_mod)
                 else:
