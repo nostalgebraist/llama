@@ -526,6 +526,7 @@ class Transformer(nn.Module):
                  bnb_kwargs=None,
                  lora_autocast=True,
                  use_lora_unembed=True,
+                 lora_dropout=0.,
                  ):
         super().__init__()
         self.params = params
@@ -548,7 +549,7 @@ class Transformer(nn.Module):
             
             linear_kwargs = dict(
                 use_lora=use_lora and layer_id >= self.freeze_layers_below_n,
-                lora_kwargs=dict(r=lora_r, use_checkpoint=use_lora_checkpoint, autocast=lora_autocast),
+                lora_kwargs=dict(r=lora_r, use_checkpoint=use_lora_checkpoint, autocast=lora_autocast, lora_dropout=lora_dropout),
                 use_8bit=quantize_frozen and base_weights_frozen and layer_id >= quantize_above,
                 bnb_kwargs=dict(threshold=quantize_threshold) | bnb_kwargs,
                 device=linear_device,
