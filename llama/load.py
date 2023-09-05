@@ -47,7 +47,7 @@ def load_state_dict_meta(module, sd, device_param_copy, device_mod, lora_checkpo
                 submod_name, _, submod_tensor_name = tensor_name.rpartition(
                     '.')
 
-                print(f"loading {tensor_name} to {submod_name}")
+                print(f"loading {tensor_name} ({new_value.dtype}) to {submod_name} ({old_value.dtype})")
 
                 module.get_submodule(
                     submod_name)._parameters[submod_tensor_name] = new_value
