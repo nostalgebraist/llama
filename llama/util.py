@@ -233,7 +233,8 @@ class LoraWrapper(Wrapper):
         return out
 
     def extra_repr(self):
-        return f'child={self.child}, r={self.r}, dropout={self.dropout.p}'
+        p = getattr(self.dropout, 'p', None)
+        return f'child={self.child}, r={self.r}, dropout={p}'
 
 
 def make_linear(
