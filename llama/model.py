@@ -98,6 +98,7 @@ class Attention(nn.Module):
                  quantize_cache=False,
                  quantize_cache_after_token=0,
                  xformers_op=None,
+                 uses_dropout=False,
                  ):
         super().__init__()
 
@@ -143,6 +144,7 @@ class Attention(nn.Module):
         self.quantize_cache = quantize_cache
         self.quantize_cache_after_token = quantize_cache_after_token
         self.xformers_op = xformers_op
+        self.uses_dropout = uses_dropout
 
         self.mask = None
         if self.use_xformers:
@@ -215,7 +217,7 @@ class Attention(nn.Module):
     def forward(self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor],
                 ):
         if self.use_checkpoint:
-            return checkpoint(self._forward, x, start_pos, freqs_cis, mask, )
+            return checkpoint(self._forward, x, start_pos, freqs_cis, mask, preserve_rng_state=self.uses_dropout)
         return self._forward(x, start_pos, freqs_cis, mask, )
 
 
@@ -229,7 +231,7 @@ class Attention(nn.Module):
         xv = xv.view(bsz, seqlen, self.n_kv_heads, self.head_dim)
 
         if self.use_checkpoint_activations:
-            xq, xk = checkpoint(apply_rotary_emb, xq, xk, freqs_cis)
+            xq, xk = checkpoint(apply_rotary_emb, xq, xk, freqs_cis, preserve_rng_state=self.uses_dropout)
         else:
             xq, xk = apply_rotary_emb(xq, xk, freqs_cis=freqs_cis)
 
@@ -412,6 +414,7 @@ class FeedForward(nn.Module):
         use_checkpoint=False,
         use_checkpoint_activations=True,
         linear_kwargs=None,
+        uses_dropout=False,
     ):
         super().__init__()
         hidden_dim = int(2 * hidden_dim / 3)
@@ -437,10 +440,11 @@ class FeedForward(nn.Module):
 
         self.use_checkpoint = use_checkpoint
         self.use_checkpoint_activations = use_checkpoint_activations
+        self.uses_dropout = uses_dropout
 
     def forward(self, x):
         if self.use_checkpoint:
-            return checkpoint(self._forward, x,)
+            return checkpoint(self._forward, x, preserve_rng_state=self.uses_dropout)
         return self._forward(x,)
     
     def _silu_mm(self, y, x):
@@ -448,7 +452,7 @@ class FeedForward(nn.Module):
 
     def silu_mm(self, y, x):
         if self.use_checkpoint_activations:
-            return checkpoint(self._silu_mm, y, x)
+            return checkpoint(self._silu_mm, y, x, preserve_rng_state=self.uses_dropout)
         return self._silu_mm(y, x)
 
     def _forward(self, x):
@@ -461,6 +465,7 @@ class TransformerBlock(nn.Module):
                  linear_kwargs=None,
                  quantize_cache=False,
                  quantize_cache_after_token=0,
+                 uses_dropout=False,
                  ):
         super().__init__()
         self.n_heads = args.n_heads
@@ -474,6 +479,7 @@ class TransformerBlock(nn.Module):
                                    linear_kwargs=linear_kwargs,
                                    quantize_cache=quantize_cache,
                                    quantize_cache_after_token=quantize_cache_after_token,
+                                   uses_dropout=uses_dropout,
                                    )
         self.feed_forward = FeedForward(
             dim=args.dim, hidden_dim=4 * args.dim, multiple_of=args.multiple_of,
@@ -481,17 +487,19 @@ class TransformerBlock(nn.Module):
             use_checkpoint=False,
             use_checkpoint_activations=use_checkpoint_activations,
             linear_kwargs=linear_kwargs,
+            uses_dropout=uses_dropout,
         )
         self.layer_id = layer_id
         self.attention_norm = RMSNorm(args.dim, eps=args.norm_eps)
         self.ffn_norm = RMSNorm(args.dim, eps=args.norm_eps)
         
         self.use_checkpoint = use_checkpoint
+        self.uses_dropout = uses_dropout
 
     def forward(self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor],
                 ):
         if self.use_checkpoint:
-            return checkpoint(self._forward, x, start_pos, freqs_cis, mask, )
+            return checkpoint(self._forward, x, start_pos, freqs_cis, mask, preserve_rng_state=self.uses_dropout)
         return self._forward(x, start_pos, freqs_cis, mask, )
 
     def _forward(self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor],
@@ -538,6 +546,8 @@ class Transformer(nn.Module):
         self.fp32_logits = fp32_logits
         bnb_kwargs = bnb_kwargs or {}
 
+        self.uses_dropout = lora_dropout > 0
+
         self.tok_embeddings = nn.Embedding(
             params.vocab_size, params.dim, 
         )
@@ -563,6 +573,7 @@ class Transformer(nn.Module):
                 quantize_cache=quantize_cache and layer_id >= quantize_cache_above,
                 quantize_cache_after_token=quantize_cache_after_token,
                 linear_kwargs=linear_kwargs,
+                uses_dropout=self.uses_dropout,
             )
             self.layers.append(make_layer())
 
@@ -615,7 +626,8 @@ class Transformer(nn.Module):
 
             h = checkpoint_sequential(
                 fwds, self.n_checkpoint_segments,
-                h
+                h,
+                preserve_rng_state=self.uses_dropout
             )
         else:
             for i, layer in enumerate(self.layers):
