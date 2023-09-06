@@ -43,7 +43,16 @@ bitsandbytes.nn.modules.Int8Params.cuda = patched_cuda
 def cuda4(self, device):
     if self.quant_state is not None:
         return self
-    w = self.data.contiguous().half().cuda(device)
+    
+    def to_half_precision(x):
+        if x.dtype in {th.float16, th.bfloat16}:
+            out = x
+        else:
+            out = x.half()
+
+        return out
+
+    w = to_half_precision(self.data.contiguous()).cuda(device)
     w_4bit, quant_state = bnb.functional.quantize_4bit(
         w, blocksize=self.blocksize, compress_statistics=self.compress_statistics, quant_type=self.quant_type)
     self.data = w_4bit
