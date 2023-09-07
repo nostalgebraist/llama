@@ -269,6 +269,9 @@ def make_linear(
 
     if quantize:
         if quantize_bits == 8:
+            for k in ['compute_dtype']:
+                if k in bnb_kwargs:
+                    del bnb_kwargs[k]
             base = bnb.modules.Linear8bitLt(
                 in_features, out_features, bias, **bnb_kwargs)
         else:
