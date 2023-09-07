@@ -535,8 +535,11 @@ class Transformer(nn.Module):
                  lora_autocast=True,
                  use_lora_unembed=True,
                  lora_dropout=0.,
+                 quantize_bits=4,
                  ):
         super().__init__()
+        assert quantize_bits in {4, 8}
+
         self.params = params
         self.vocab_size = params.vocab_size
         self.n_layers = params.n_layers
@@ -560,7 +563,8 @@ class Transformer(nn.Module):
             linear_kwargs = dict(
                 use_lora=use_lora and layer_id >= self.freeze_layers_below_n,
                 lora_kwargs=dict(r=lora_r, use_checkpoint=use_lora_checkpoint, autocast=lora_autocast, lora_dropout=lora_dropout),
-                use_8bit=quantize_frozen and base_weights_frozen and layer_id >= quantize_above,
+                quantize=quantize_frozen and base_weights_frozen and layer_id >= quantize_above,
+                quantize_bits=quantize_bits,
                 bnb_kwargs=dict(threshold=quantize_threshold) | bnb_kwargs,
                 device=linear_device,
             )
@@ -582,7 +586,8 @@ class Transformer(nn.Module):
         linear_kwargs = dict(
             use_lora=use_lora_unembed,
             lora_kwargs=dict(r=lora_r, lora_alpha=lora_alpha, use_checkpoint=use_lora_checkpoint),
-            use_8bit=quantize_frozen and use_lora and allow_quantize_unembed,
+            quantize=quantize_frozen and use_lora and allow_quantize_unembed,
+            quantize_bits=quantize_bits,
             bnb_kwargs=dict(threshold=quantize_threshold),
         )
         self.output = make_linear(

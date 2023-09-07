@@ -248,7 +248,8 @@ class LoraWrapper(Wrapper):
 
 def make_linear(
     in_features, out_features, bias=True,
-    use_8bit=False,
+    quantize=False,
+    quantize_bits=4,
     use_lora=False,
     lora_kwargs=None,
     bnb_kwargs=None,
@@ -266,12 +267,16 @@ def make_linear(
     if use_lora:
         assert 'r' in lora_kwargs
 
-    if use_8bit:
-        for k in ['has_fp16_weights', 'threshold']:
-            if k in bnb_kwargs:
-                del bnb_kwargs[k]
-        base = bnb.modules.Linear4bit(
-            in_features, out_features, bias, quant_type='nf4', **bnb_kwargs)
+    if quantize:
+        if quantize_bits == 8:
+            base = bnb.modules.Linear8bitLt(
+                in_features, out_features, bias, **bnb_kwargs)
+        else:
+            for k in ['has_fp16_weights', 'threshold']:
+                if k in bnb_kwargs:
+                    del bnb_kwargs[k]
+            base = bnb.modules.Linear4bit(
+                in_features, out_features, bias, quant_type='nf4', **bnb_kwargs)
     else:
         base = nn.Linear(in_features, out_features, bias, **linear_kwargs)
 
