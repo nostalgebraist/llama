@@ -447,8 +447,8 @@ class FeedForward(nn.Module):
             return checkpoint(self._forward, x, preserve_rng_state=self.uses_dropout)
         return self._forward(x,)
     
-    def _silu_mm(self, y, x):
-        return F.silu(y) * self.w3(x)
+    def _silu_mm(self, y, z):
+        return F.silu(y) * z
 
     def silu_mm(self, y, x):
         if self.use_checkpoint_activations:
@@ -456,7 +456,7 @@ class FeedForward(nn.Module):
         return self._silu_mm(y, x)
 
     def _forward(self, x):
-        return self.w2(self.silu_mm(self.w1(x), x))
+        return self.w2(self.silu_mm(self.w1(x), self.w3(x)))
         # return self.w2(F.silu(self.w1(x)) * self.w3(x))
 
 
