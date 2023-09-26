@@ -456,7 +456,8 @@ class FeedForward(nn.Module):
         return self._silu_mm(y, x)
 
     def _forward(self, x):
-        return self.w2(F.silu(self.w1(x)) * self.w3(x))
+        return self.w2(self.silu_mm(self.w1(x), x))
+        # return self.w2(F.silu(self.w1(x)) * self.w3(x))
 
 
 class TransformerBlock(nn.Module):
