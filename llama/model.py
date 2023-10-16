@@ -217,7 +217,7 @@ class Attention(nn.Module):
     def forward(self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor],
                 ):
         if self.use_checkpoint:
-            return checkpoint(self._forward, x, start_pos, freqs_cis, mask, preserve_rng_state=self.uses_dropout)
+            return checkpoint(self._forward, x, start_pos, freqs_cis, mask, preserve_rng_state=self.uses_dropout, use_reentrant=False)
         return self._forward(x, start_pos, freqs_cis, mask, )
 
 
@@ -231,7 +231,7 @@ class Attention(nn.Module):
         xv = xv.view(bsz, seqlen, self.n_kv_heads, self.head_dim)
 
         if self.use_checkpoint_activations:
-            xq, xk = checkpoint(apply_rotary_emb, xq, xk, freqs_cis, preserve_rng_state=self.uses_dropout)
+            xq, xk = checkpoint(apply_rotary_emb, xq, xk, freqs_cis, preserve_rng_state=self.uses_dropout, use_reentrant=False)
         else:
             xq, xk = apply_rotary_emb(xq, xk, freqs_cis=freqs_cis)
 
@@ -444,7 +444,7 @@ class FeedForward(nn.Module):
 
     def forward(self, x):
         if self.use_checkpoint:
-            return checkpoint(self._forward, x, preserve_rng_state=self.uses_dropout)
+            return checkpoint(self._forward, x, preserve_rng_state=self.uses_dropout, use_reentrant=False)
         return self._forward(x,)
     
     def _silu_mm(self, y, z):
@@ -452,7 +452,7 @@ class FeedForward(nn.Module):
 
     def silu_mm(self, y, x):
         if self.use_checkpoint_activations:
-            return checkpoint(self._silu_mm, y, x, preserve_rng_state=self.uses_dropout)
+            return checkpoint(self._silu_mm, y, x, preserve_rng_state=self.uses_dropout, use_reentrant=False)
         return self._silu_mm(y, x)
 
     def _forward(self, x):
@@ -500,7 +500,7 @@ class TransformerBlock(nn.Module):
     def forward(self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor],
                 ):
         if self.use_checkpoint:
-            return checkpoint(self._forward, x, start_pos, freqs_cis, mask, preserve_rng_state=self.uses_dropout)
+            return checkpoint(self._forward, x, start_pos, freqs_cis, mask, preserve_rng_state=self.uses_dropout, use_reentrant=False)
         return self._forward(x, start_pos, freqs_cis, mask, )
 
     def _forward(self, x: torch.Tensor, start_pos: int, freqs_cis: torch.Tensor, mask: Optional[torch.Tensor],
